@@ -1,32 +1,12 @@
-# Environment / secrets
-.env
-.env.*
-!.env.example
-
-# Virtual environments
 .venv/
-venv/
-env/
-
-# Python
 __pycache__/
-*.py[cod]
-*.egg-info/
-build/
-dist/
-
-# Test / tooling caches
+.env
+backend/data/
 .pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
+node_modules/
+.next/
 
-# Runtime data (SQLite DBs, credits, SERP cache)
-data/
-
-# Editors / OS
-.DS_Store
-.idea/
-.vscode/
-*.swp
+# demo recording artifacts
+demo/work/
+demo/*.mp4
+demo/*.log
