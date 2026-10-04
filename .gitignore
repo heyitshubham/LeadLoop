@@ -10,3 +10,4 @@ node_modules/
 demo/work/
 demo/*.mp4
 demo/*.log
+.playwright-mcp/

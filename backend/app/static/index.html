@@ -108,7 +108,7 @@
   .panel .sub { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
   .span-12 { grid-column: span 12; } .span-7 { grid-column: span 7; } .span-5 { grid-column: span 5; }
   .span-6 { grid-column: span 6; } .span-4 { grid-column: span 4; } .span-8 { grid-column: span 8; }
-  .kpis { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
+  .kpis { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 10px; }
   .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
   .kpi .l { font-size: 12px; color: var(--muted); }
   .kpi .v { font-size: 24px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: 2px; }
@@ -221,7 +221,7 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const safeUrl = (u) => (/^https?:\/\//i.test(u || "") ? esc(u) : "#");
 // ₹4,000 (Indian grouping) / $100 — every amount is shown in its deal's own currency.
 const money = (n, cur = "INR") => new Intl.NumberFormat(cur === "INR" ? "en-IN" : "en-US",
-  { style: "currency", currency: cur, maximumFractionDigits: 0 }).format(Number(n || 0));
+  { style: "currency", currency: cur, minimumFractionDigits: 0, maximumFractionDigits: Number.isInteger(Number(n || 0)) ? 0 : 2 }).format(Number(n || 0));
 const moneyTotals = (totals) => Object.entries(totals || {}).map(([c, n]) => money(n, c)).join(" · ") || "—";
 let leads = [], deals = {}, health = {}, selected = null, drawerDirty = false;
 
@@ -262,9 +262,9 @@ function column(lead) {
   const d = deals[lead.id];
   if (!d) return "found";
   const gate = d.pending_gate?.gate;
-  if (gate === "pitch" || gate === "reply") return "gate";
+  if (gate === "pitch" || gate === "reply" || gate === "delivery") return "gate";
   if (gate === "lead") return "waiting";
-  if (d.stage === "won") return "won";
+  if (d.stage === "won" || d.stage === "delivered") return "won";
   if (["rejected", "disqualified", "lost"].includes(d.stage)) return "closed";
   return "gate";
 }
@@ -276,9 +276,11 @@ function card(lead) {
   if (gate === "reply") why = d.draft?.kind === "followup" ? "Follow-up drafted — review it" : `Lead said: ${d.read?.summary || ""}`;
   if (d?.quote && ["reply", "lead"].includes(gate)) why += ` · quote ${money(d.quote.price, d.quote.currency)}`;
   if (d?.stage === "won") why = `Won · ${d.quote ? `${d.quote.rows.toLocaleString("en-IN")} rows for ${money(d.quote.price, d.quote.currency)}` : ""}`;
+  if (gate === "delivery") why = `Order built: ${d.order.delivered} rows · ${d.order.margin_pct}% margin — review the delivery`;
+  if (d?.stage === "delivered") why = `Delivered ${d.order.delivered} rows · invoice ${money(d.order.invoice, d.order.currency)} · ${d.order.margin_pct}% margin`;
   const sources = [...new Set(lead.signals.map((s) => s.source))];
   const stage = d && ["rejected", "disqualified", "lost"].includes(d.stage) ? `<span class="chip">${esc(d.stage)}</span>` : "";
-  return `<div class="card ${selected === lead.id ? "active" : ""} ${d?.stage === "won" ? "won" : ""}" data-id="${esc(lead.id)}">
+  return `<div class="card ${selected === lead.id ? "active" : ""} ${["won", "delivered"].includes(d?.stage) ? "won" : ""}" data-id="${esc(lead.id)}">
     <div class="top"><span class="name">${esc(lead.name)}</span><span class="score ${scoreClass(lead.intent_score)}">${lead.intent_score}</span></div>
     <div class="why">${esc(why)}</div>
     <div class="chips">${sources.map((s) => `<span class="chip">${esc(s)}</span>`).join("")}<span class="chip">${esc(lead.market || "Global")} · ${esc(lead.currency)}</span>${stage}</div>
@@ -309,6 +311,19 @@ function quoteBlock(q) {
     <div class="note">${esc(q.note)} · max ${health.pricing?.max_discount_pct}% off, set in .env</div></div>`;
 }
 
+function orderBlock(o, id) {
+  const engines = Object.entries(o.searches).map(([e, n]) => `${e} ×${n}`).join(", ");
+  return `<div class="quote">
+    <div><span>Rows</span><b>${o.delivered.toLocaleString("en-IN")} / ${o.ordered.toLocaleString("en-IN")}</b></div>
+    <div><span>Invoice</span><b>${money(o.invoice, o.currency)}</b></div>
+    <div><span>SerpApi cost</span><b>${money(o.serp_cost, o.currency)}</b></div>
+    <div><span>Margin</span><b>${o.margin_pct ?? "—"}%</b></div>
+    <div class="note">${esc(o.invoice_note)} · ${o.searches_total} searches (${esc(engines)}; ${o.live_credits} live credits) ·
+      ${esc(o.cities.join(", "))} · ${o.duplicates_dropped} duplicates dropped · top ${o.enriched} rows enriched ·
+      phone on ${o.completeness.phone}%, website on ${o.completeness.website}% ·
+      <a href="/api/deals/${encodeURIComponent(id)}/dataset.csv" target="_blank">full CSV</a></div></div>`;
+}
+
 function renderDrawer(id) {
   const lead = leads.find((l) => l.id === id); if (!lead) return;
   const d = deals[id];
@@ -326,6 +341,7 @@ function renderDrawer(id) {
       <input type="text" id="email" placeholder="Lead's email${live ? " (required in live mode)" : " (optional in sandbox)"}" value="${esc(lead.email || "")}">
       <label class="check"><input type="checkbox" id="auto-pitch"> Autopilot: send the pitch without asking me</label>
       <label class="check"><input type="checkbox" id="auto-reply"> Autopilot: send replies and follow-ups without asking me</label>
+      <label class="check"><input type="checkbox" id="auto-delivery"> Autopilot: deliver the dataset once they buy</label>
       <button class="primary" id="start">Qualify, build sample &amp; draft pitch</button>`;
   } else if (gate?.gate === "pitch") {
     html += `<h4>Pitch</h4><div class="gate"><div class="label">Waiting for your decision</div>
@@ -346,6 +362,16 @@ function renderDrawer(id) {
       <input type="text" id="note" placeholder="Note for the audit trail (optional)" style="margin-top:8px">
       <div class="actions"><button class="primary" id="approve">Approve &amp; send</button>
       <button class="danger" id="reject">Discard draft</button></div></div>`;
+  } else if (gate?.gate === "delivery") {
+    html += `<h4>Deliver the order</h4><div class="gate"><div class="label">Waiting for your decision</div>
+      ${gate.send_error ? `<div class="err">Last send failed: ${esc(gate.send_error)}</div>` : ""}
+      <p class="muted">They accepted. The agent built the dataset and costed it; check it, then send.</p>
+      ${orderBlock(d.order, id)}
+      <input type="text" id="subj" value="${esc(d.delivery_email.subject)}" style="margin-top:8px">
+      <textarea id="body" style="margin-top:8px">${esc(d.delivery_email.body)}</textarea>
+      <input type="text" id="note" placeholder="Note for the audit trail (optional)" style="margin-top:8px">
+      <div class="actions"><button class="primary" id="approve">Approve &amp; deliver</button>
+      <button class="danger" id="reject">Hold delivery</button></div></div>`;
   } else if (gate?.gate === "lead") {
     html += `<h4>Waiting on ${esc(lead.name)}</h4><div class="waiting">
       <div class="muted">Follow-ups sent: ${d.followups || 0}. The next one is drafted automatically if they stay quiet.</div>
@@ -359,7 +385,12 @@ function renderDrawer(id) {
         <button id="nudge">Follow up now</button></div></div>`;
   }
 
-  if (d?.quote && gate?.gate !== "reply") html += `<h4>Current quote</h4>${quoteBlock(d.quote)}`;
+  if (d?.order && gate?.gate !== "delivery") html += `<h4>Order</h4>${orderBlock(d.order, id)}`;
+  if (d?.order_preview?.length) html += `<h4>Dataset preview (best ${d.order_preview.length} of ${d.order.delivered})</h4>
+    <div class="table-wrap"><table><tr><th>Name</th><th>Quality</th><th>Phone</th><th>Customers mention</th><th>Hiring</th><th>City</th></tr>
+    ${d.order_preview.map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.quality)}</td><td>${esc(r.phone || "—")}</td><td>${esc(r.customers_mention || "—")}</td><td>${esc(r.hiring_now || "—")}</td><td>${esc(r.city)}</td></tr>`).join("")}
+    </table></div>`;
+  if (d?.quote && gate?.gate !== "reply") html += `<h4>${d.order ? "Accepted quote" : "Current quote"}</h4>${quoteBlock(d.quote)}`;
 
   if (d?.thread?.length) {
     html += `<h4>Conversation</h4>` + d.thread.map((m) => `<div class="bubble ${m.dir}">
@@ -391,18 +422,19 @@ function wire(id, d) {
   const enc = encodeURIComponent(id);
   $("x").onclick = closeDrawer;
   if ($("start")) $("start").onclick = (e) => {
-    const autopilot = [$("auto-pitch").checked && "pitch", $("auto-reply").checked && "reply"].filter(Boolean);
+    const autopilot = [$("auto-pitch").checked && "pitch", $("auto-reply").checked && "reply", $("auto-delivery").checked && "delivery"].filter(Boolean);
     const email = $("email").value.trim() || null;
     run(e.target, "Agent is qualifying and building the sample…", () => post(`/api/leads/${enc}/deal`, { autopilot, email }));
   };
   if ($("approve")) $("approve").onclick = (e) => {
-    const isPitch = d.pending_gate.gate === "pitch";
-    const original = isPitch ? d.pitch : d.draft;
+    const isPitch = ["pitch", "delivery"].includes(d.pending_gate.gate);  // both have a subject line
+    const original = d.pending_gate.gate === "pitch" ? d.pitch : d.pending_gate.gate === "delivery" ? d.delivery_email : d.draft;
     const draft = isPitch ? { subject: $("subj").value, body: $("body").value } : { body: $("body").value };
     const edited = draft.body !== original.body || (isPitch && draft.subject !== original.subject);
     const decision = edited ? { action: "edit", draft } : { action: "approve" };
     decision.note = $("note").value || null;
-    run(e.target, "Sending…", () => post(`/api/deals/${enc}/decision`, decision),
+    run(e.target, d.after_send === "won" && d.pending_gate.gate === "reply" ? "Sending, then building the order…" : "Sending…",
+      () => post(`/api/deals/${enc}/decision`, decision),
       health.send_mode === "live" ? "Sent" : "Sent — check the Mailpit inbox");
   };
   if ($("reject")) $("reject").onclick = (e) => run(e.target, "…", () =>
@@ -530,7 +562,8 @@ function flowDiagram(f) {
     { n: f.pitch_approval, t: "Pitch approval", w: "you", tip: "Pitches drafted with a free sample, waiting for you" },
     { n: f.waiting_on_lead, t: "Waiting on lead", w: "lead", tip: "Pitched; follow-ups go out automatically if they stay quiet" },
     { n: f.reply_approval, t: "Reply approval", w: "you", tip: "Lead replied; the agent priced it by your rules and drafted an answer" },
-    { n: f.won, t: "Won", w: "closed", tip: "Accepted a quote" },
+    { n: f.delivery_approval, t: "Delivery approval", w: "you", tip: "Order built with its cost and margin, waiting for you to send it" },
+    { n: f.delivered, t: "Delivered", w: "closed", tip: "Paid order sent as a CSV" },
     { n: f.closed, t: "Closed out", w: "closed", tip: "Lost, rejected, disqualified or opted out" },
   ];
   const arrow = `<div class="arrow" aria-hidden="true"><svg width="16" height="12" viewBox="0 0 16 12"><path d="M0 6h13M9 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></div>`;
@@ -559,7 +592,9 @@ function renderInsights(s) {
       ${kpi("Pitched", k.pitched, "with a free sample")}
       ${kpi("Reply rate", k.reply_rate === null ? "—" : k.reply_rate + "%", "of pitched leads")}
       ${kpi("Deals won", k.won)}
-      ${kpi("Revenue won", moneyTotals(k.revenue_won), "accepted quotes, per currency")}
+      ${kpi("Revenue won", moneyTotals(k.revenue_won), "invoiced (or accepted), per currency")}
+      ${kpi("SerpApi cost", moneyTotals(Object.fromEntries(Object.entries(s.economics).map(([c, e]) => [c, e.serp_cost]))),
+        Object.entries(s.economics).map(([c, e]) => e.invoiced ? `${Math.round(100 * (e.invoiced - e.serp_cost) / e.invoiced)}% margin (${c})` : "").filter(Boolean).join(" · ") || "of built orders")}
       ${kpi("Open pipeline", moneyTotals(k.pipeline_value), "latest quote on open deals")}
       ${kpi("Handled by agent", k.automation_pct === null ? "—" : k.automation_pct + "%", "of agent + your actions")}
     </div>
@@ -575,6 +610,16 @@ function renderInsights(s) {
         : `<div class="nodata">No negotiations yet. Once a lead replies, every quote round shows up here.</div>`}</div>
     <div class="panel span-5"><h3>Intent scores</h3><p class="sub">How strongly each discovered lead signals a need for data.</p>
       <div class="slot" id="slot-int"></div>${table(["Intent score", "Leads"], s.intent_bins.map((b) => [b.bin, b.count]))}</div>
+    <div class="panel span-7"><h3>Unit economics</h3><p class="sub">Every built order: searches spent, what they cost at your SerpApi rate, what was invoiced. Short orders are invoiced pro-rata.</p>
+      ${s.orders.length ? `<div class="table-wrap"><table><tr><th>Deal</th><th>Rows</th><th>Searches</th><th>Live credits</th><th>SerpApi cost</th><th>Invoice</th><th>Margin</th></tr>
+        ${s.orders.map((o) => `<tr><td>${esc(o.deal)}</td><td>${o.delivered} / ${o.ordered}</td><td>${o.searches_total}</td><td>${o.live_credits}</td><td>${money(o.serp_cost, o.currency)}</td><td>${money(o.invoice, o.currency)}</td><td>${o.margin_pct ?? "—"}%</td></tr>`).join("")}</table></div>`
+        : `<div class="nodata">No orders yet. When a lead accepts, the agent builds the dataset and it shows up here.</div>`}</div>
+    <div class="panel span-5"><h3>What the agent learned</h3><p class="sub">Reply rate per lead source. After 3 pitches a source moves the intent score of its next leads (up to ±10).</p>
+      ${s.learning.length ? hbars(s.learning.map((l) => ({ label: l.source, value: l.reply_rate, l })),
+          (r) => `${r.label}: ${r.l.replied} of ${r.l.pitched} replied, ${r.l.won} won · score ${r.l.adjust > 0 ? "+" : ""}${r.l.adjust}`,
+          (r) => `${r.value}%${r.l.adjust ? ` · ${r.l.adjust > 0 ? "+" : ""}${r.l.adjust}` : ""}`)
+        + table(["Source", "Pitched", "Replied", "Won", "Reply rate", "Score adjustment"], s.learning.map((l) => [l.source, l.pitched, l.replied, l.won, l.reply_rate + "%", l.adjust]))
+        : `<div class="nodata">Nothing to learn from yet: pitch a few leads.</div>`}</div>
     <div class="panel span-5"><h3>Who did the work</h3><p class="sub">Every step in every deal's audit trail.</p>${actorsChart(s.actors)}</div>
     <div class="panel span-7"><h3>Recent activity</h3><p class="sub">Latest steps across all deals.</p>
       ${s.activity.length ? `<ul class="feed">${s.activity.map((a) => `<li><span class="stage who">${esc(a.actor)}</span><b>${esc(a.deal)}</b> — ${esc(a.note)} <span class="muted">· ${esc(a.at.slice(5, 16).replace("T", " "))} UTC</span></li>`).join("")}</ul>` : `<div class="nodata">Nothing yet.</div>`}</div>`;

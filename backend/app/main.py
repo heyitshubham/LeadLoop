@@ -12,10 +12,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from app import stats, store
+from app import learning, stats, store
 from app.config import settings
 from app.discovery.service import discover
-from app.pipeline import inbox, mailer, runner
+from app.pipeline import fulfil, inbox, mailer, runner
 from app.pipeline.sample import to_csv
 from app.serp.client import CreditBudgetExceeded, serp
 
@@ -55,6 +55,10 @@ def board():
     return FileResponse(BOARD)
 
 
+def _all_deals() -> list[dict]:
+    return [v for i in store.list_deal_ids() if (v := runner.view(i))]
+
+
 def _deal(deal_id: str) -> dict:
     v = runner.view(deal_id)
     if not v:
@@ -81,7 +85,7 @@ def health():
 
 @app.get("/api/stats")
 def insights():
-    return stats.compute(store.list_leads(), [v for i in store.list_deal_ids() if (v := runner.view(i))])
+    return stats.compute(store.list_leads(), _all_deals())
 
 
 @app.get("/api/mail/check")
@@ -93,7 +97,7 @@ def mail_check():
 @app.post("/api/discover")
 def run_discovery(min_score: int = 40):
     try:
-        leads = discover(serp, min_score=min_score)
+        leads = discover(serp, min_score=min_score, learned=learning.source_performance(_all_deals()))
     except CreditBudgetExceeded as e:
         raise HTTPException(429, str(e))
     store.save_leads(leads)
@@ -109,7 +113,8 @@ def discover_stream(min_score: int = 40):
         t0 = time.perf_counter()
         used_before = serp.credits_used()
         try:
-            leads = discover(serp, min_score=min_score, emit=events.put)
+            leads = discover(serp, min_score=min_score, emit=events.put,
+                             learned=learning.source_performance(_all_deals()))
             store.save_leads(leads)
             events.put({"type": "done", "count": len(leads), "ms": round((time.perf_counter() - t0) * 1000),
                         "credits_spent": serp.credits_used() - used_before, "serp_mode": serp.mode,
@@ -138,7 +143,7 @@ def leads():
 
 
 class StartDeal(BaseModel):
-    autopilot: list[Literal["pitch", "reply"]] = []
+    autopilot: list[Literal["pitch", "reply", "delivery"]] = []
     email: str | None = Field(default=None, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -159,7 +164,7 @@ def start_deal(lead_id: str, body: StartDeal):
 
 @app.get("/api/deals")
 def deals():
-    return [v for i in store.list_deal_ids() if (v := runner.view(i))]
+    return _all_deals()
 
 
 @app.get("/api/deals/{deal_id}")
@@ -224,3 +229,13 @@ def poll_inbox():
 @app.get("/api/deals/{deal_id}/sample.csv", response_class=PlainTextResponse)
 def sample_csv(deal_id: str):
     return to_csv(_deal(deal_id).get("sample", []))
+
+
+@app.get("/api/deals/{deal_id}/dataset.csv", response_class=PlainTextResponse)
+def dataset_csv(deal_id: str):
+    """The full dataset built for a won deal."""
+    _deal(deal_id)
+    data = fulfil.load(deal_id)
+    if data is None:
+        raise HTTPException(404, "No dataset built for this deal yet")
+    return data

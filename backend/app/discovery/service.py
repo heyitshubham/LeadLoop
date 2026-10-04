@@ -27,7 +27,9 @@ def _lead_id(name: str) -> str:
     return f"{slug}-{hashlib.sha1(name.lower().encode()).hexdigest()[:6]}"
 
 
-def discover(serp: SerpClient, min_score: int = 40, emit: Emit = lambda e: None) -> list[Lead]:
+def discover(serp: SerpClient, min_score: int = 40, emit: Emit = lambda e: None, learned: dict | None = None) -> list[Lead]:
+    """`learned` is learning.source_performance() over past deals: it nudges each source's scores."""
+    learned = learned or {}
     searches = src.plan()
     markets = ", ".join(m["name"] for m in settings.markets)
     emit({"type": "step", "id": "plan", "status": "done", "label": "Planning searches",
@@ -56,6 +58,9 @@ def discover(serp: SerpClient, min_score: int = 40, emit: Emit = lambda e: None)
     for sigs in by_company.values():
         score, evidence = score_lead(sigs)
         name = sigs[0].company
+        if (p := learned.get(sigs[0].source)) and p["adjust"]:
+            score = max(0, min(100, score + p["adjust"]))
+            evidence = evidence + [p["reason"]]
         if score < min_score:
             dropped.append((name, score))
             continue
@@ -75,7 +80,9 @@ def discover(serp: SerpClient, min_score: int = 40, emit: Emit = lambda e: None)
         )
     leads.sort(key=lambda l: -l.intent_score)
     emit({"type": "step", "id": "score", "status": "done",
-          "summary": f"{len(leads)} leads at or above {min_score}/100 · {len(dropped)} dropped",
+          "summary": f"{len(leads)} leads at or above {min_score}/100 · {len(dropped)} dropped"
+          + "".join(f" · {src_} {'+' if p['adjust'] > 0 else ''}{p['adjust']} (learned)"
+                    for src_, p in learned.items() if p["adjust"]),
           "items": [f"✓ {l.name} — {l.intent_score}/100 · {'; '.join(l.evidence[1:3]) or l.evidence[0]}" for l in leads]
           + [f"✗ {name} — {score}/100, no clear need for data" for name, score in dropped]})
     return _vet(leads, emit)

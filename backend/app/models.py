@@ -13,6 +13,7 @@ class Stage(StrEnum):
     PITCHED = "pitched"  # sent, waiting for the lead
     NEGOTIATING = "negotiating"  # lead replied; our answer is drafted
     WON = "won"
+    DELIVERED = "delivered"  # full dataset sent after the win
     LOST = "lost"
     REJECTED = "rejected"
 

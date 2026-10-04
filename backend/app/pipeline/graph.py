@@ -8,14 +8,19 @@
                |  (unsubscribe -> lost)      |  (max reached -> lost)    |
                v                             v                           |
           [gate: reply] -> send_reply -> won / lost / back to waiting ---+
+                                           |
+                                          won -> fulfil -> [gate: delivery] -> send_delivery
 
 Gates use `interrupt()`: the graph pauses, the board shows the draft, and the human's
 decision resumes the thread from its checkpoint. Gates named in `autopilot` are skipped.
+`fulfil` builds the dataset the lead bought (see fulfil.py) and the delivery gate shows it
+with its cost and margin before the CSV goes out.
 `wait_for_lead` is also an interrupt, resumed by the inbox poller, the follow-up
 scheduler, or the board's "simulate reply" box in sandbox mode.
 """
 
 import operator
+import re
 import smtplib
 import sqlite3
 from datetime import datetime, timezone
@@ -28,9 +33,10 @@ from langgraph.types import interrupt
 from app import llm, store
 from app.config import settings
 from app.models import Assessment, Lead, Pitch, ReplyRead, Stage
+from app.pipeline import fulfil as orders
 from app.pipeline import mailer, pricing
 from app.pipeline.sample import build_sample, to_csv
-from app.serp.client import serp
+from app.serp.client import CreditBudgetExceeded, serp
 
 MIN_FIT = 50
 
@@ -57,6 +63,9 @@ class DealState(TypedDict, total=False):
     followups: int
     draft: dict  # our next reply, waiting for the reply gate
     after_send: str  # wait | won | lost
+    order: dict  # fulfilment report: rows, searches, cost, invoice, margin
+    order_preview: list[dict]  # first rows of the delivered dataset (the full CSV lives on disk)
+    delivery_email: dict  # {"subject", "body"} waiting for the delivery gate
     audit: Annotated[list[dict], operator.add]
 
 
@@ -200,6 +209,80 @@ def send_reply(state: DealState) -> DealState:
     return update
 
 
+# --- fulfilment ---------------------------------------------------------------
+
+
+def fulfil(state: DealState) -> DealState:
+    a = Assessment(**state["assessment"])
+    lead = state["lead"]
+    q = state["quote"]
+    try:
+        rows, report = orders.build_order(serp, a.sample_category, a.sample_city, lead.get("market"), q)
+    except CreditBudgetExceeded as e:
+        return {"send_error": str(e), "audit": _log("agent", f"could not build the order: {e}")}
+    if not rows:
+        return {"send_error": "no rows found for this order", "audit": _log("agent", "found no rows for the order; nothing to deliver")}
+    orders.save(lead["id"], rows)
+    cur = report["currency"]
+    shortfall = (
+        f"\n\nWe found {report['delivered']} of the {report['ordered']} rows you ordered, so the invoice is "
+        f"{pricing.money(report['invoice'], cur)} instead of {pricing.money(q['price'], cur)}."
+        if report["delivered"] < report["ordered"] else ""
+    )
+    body = (
+        f"Hi {lead['name']} team,\n\nThanks for the order. Your dataset is attached: {report['delivered']} "
+        f"{a.sample_category} across {', '.join(report['cities'])}, best rows first.\n\n"
+        f"Each row has name, address, phone, website, rating, review count, opening status and map "
+        f"coordinates, plus a quality score. The top {report['enriched']} rows also show what customers "
+        f"mention in reviews and whether the business is hiring right now.\n\n"
+        f"Phone numbers are present on {report['completeness']['phone']}% of rows and websites on "
+        f"{report['completeness']['website']}%. Everything comes from public search listings."
+        f"{shortfall}\n\nInvoice: {pricing.money(report['invoice'], cur)}.\n\n— {settings.signature}"
+    )
+    return {
+        "order": report,
+        "order_preview": rows[:10],
+        "delivery_email": {"subject": f"Your {a.sample_category} dataset ({report['delivered']} rows)", "body": body},
+        "send_error": None,
+        "audit": _log(
+            "agent",
+            f"built the order: {report['delivered']}/{report['ordered']} rows from {report['searches_total']} searches "
+            f"({report['live_credits']} live credits), SerpApi cost {pricing.money(report['serp_cost'], cur)}, "
+            f"invoice {pricing.money(report['invoice'], cur)}, margin {report['margin_pct']}%",
+        ),
+    }
+
+
+def approve_delivery(state: DealState) -> DealState:
+    decision = _gate(state, "delivery", "delivery_email")
+    if decision is None:
+        return {"audit": _log("agent", "delivery auto-approved (autopilot)")}
+    note = (decision.get("note") or "").strip()
+    if decision["action"] == "reject":
+        return {"after_send": "hold", "audit": _log("human", f"held the delivery. {note}".strip())}
+    if decision["action"] == "edit":
+        return {
+            "delivery_email": {**state["delivery_email"], **{k: v for k, v in decision["draft"].items() if k in ("subject", "body")}},
+            "after_send": "deliver",
+            "audit": _log("human", f"edited and approved the delivery. {note}".strip()),
+        }
+    return {"after_send": "deliver", "audit": _log("human", f"approved the delivery. {note}".strip())}
+
+
+def send_delivery(state: DealState) -> DealState:
+    if state.get("after_send") == "hold":
+        return {}
+    lead = state["lead"]
+    a = Assessment(**state["assessment"])
+    filename = re.sub(r"[^a-z0-9]+", "-", f"{a.sample_category} {state['order']['delivered']} rows".lower()).strip("-") + ".csv"
+    update, ok = _send(state, state["delivery_email"]["subject"], state["delivery_email"]["body"],
+                       (filename, orders.load(lead["id"]) or ""))
+    if ok:
+        update |= {"stage": Stage.DELIVERED.value,
+                   "audit": _log("agent", f"delivered {state['order']['delivered']} rows to {update['sent_to']}")}
+    return update
+
+
 # --- the lead's side ----------------------------------------------------------
 
 
@@ -302,7 +385,17 @@ def _after_draft(state: DealState) -> str:
 def _after_send_reply(state: DealState) -> str:
     if state.get("send_error"):
         return "approve_reply"
-    return END if state["stage"] in (Stage.WON.value, Stage.LOST.value) else "wait_for_lead"
+    if state["stage"] == Stage.WON.value:
+        return "fulfil"
+    return END if state["stage"] == Stage.LOST.value else "wait_for_lead"
+
+
+def _after_fulfil(state: DealState) -> str:
+    return END if state.get("send_error") else "approve_delivery"  # out of credits: stays won, nothing sent
+
+
+def _after_send_delivery(state: DealState) -> str:
+    return "approve_delivery" if state.get("send_error") else END
 
 
 def build_graph(checkpointer):
@@ -318,6 +411,9 @@ def build_graph(checkpointer):
         ("follow_up", follow_up),
         ("approve_reply", approve_reply),
         ("send_reply", send_reply),
+        ("fulfil", fulfil),
+        ("approve_delivery", approve_delivery),
+        ("send_delivery", send_delivery),
     ]:
         g.add_node(name, fn)
     g.add_edge(START, "qualify")
@@ -330,7 +426,10 @@ def build_graph(checkpointer):
     g.add_conditional_edges("negotiate", _after_draft, ["approve_reply", END])
     g.add_conditional_edges("follow_up", _after_draft, ["approve_reply", END])
     g.add_edge("approve_reply", "send_reply")
-    g.add_conditional_edges("send_reply", _after_send_reply, ["approve_reply", "wait_for_lead", END])
+    g.add_conditional_edges("send_reply", _after_send_reply, ["approve_reply", "wait_for_lead", "fulfil", END])
+    g.add_conditional_edges("fulfil", _after_fulfil, ["approve_delivery", END])
+    g.add_edge("approve_delivery", "send_delivery")
+    g.add_conditional_edges("send_delivery", _after_send_delivery, ["approve_delivery", END])
     return g.compile(checkpointer=checkpointer)
 
 

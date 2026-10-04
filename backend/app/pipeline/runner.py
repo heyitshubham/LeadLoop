@@ -41,7 +41,7 @@ def start(deal_id: str, lead: dict, autopilot: list[str]) -> None:
 
 def decide(deal_id: str, decision: dict) -> None:
     with _locks[deal_id]:
-        if _gate(deal_id) not in ("pitch", "reply"):
+        if _gate(deal_id) not in ("pitch", "reply", "delivery"):
             raise NotWaiting("This deal is not waiting for your decision")
         deal_graph.invoke(Command(resume=decision), _cfg(deal_id))
 

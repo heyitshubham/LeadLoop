@@ -23,7 +23,9 @@ class Quote(BaseModel):
 
 
 def money(amount: int | float, currency: str) -> str:
-    """₹3,200 / $120 — Indian digit grouping for INR."""
+    """₹3,200 / $120 — Indian digit grouping for INR. Small fractional amounts (search costs) keep paise/cents."""
+    if isinstance(amount, float) and amount != int(amount) and abs(amount) < 1000:
+        return f"{SYMBOLS.get(currency, currency + ' ')}{amount:.2f}"
     n = round(amount)
     if currency == "INR":
         s = str(abs(n))

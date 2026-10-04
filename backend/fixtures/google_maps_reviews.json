@@ -1,0 +1,23 @@
+{
+  "topics": [
+    {
+      "keyword": "site visits",
+      "mentions": 18
+    },
+    {
+      "keyword": "responsive agent",
+      "mentions": 11
+    },
+    {
+      "keyword": "paperwork",
+      "mentions": 6
+    }
+  ],
+  "reviews": [
+    {
+      "rating": 5,
+      "date": "2 weeks ago",
+      "snippet": "Demo review: quick site visit, clear paperwork."
+    }
+  ]
+}

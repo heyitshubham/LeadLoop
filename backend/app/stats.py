@@ -2,10 +2,12 @@
 
 from collections import Counter
 
+from app.learning import source_performance
 from app.models import Lead
 
 INTENT_BINS = [(40, 49), (50, 59), (60, 69), (70, 79), (80, 89), (90, 100)]
-CLOSED = {"won", "lost", "rejected", "disqualified"}
+CLOSED = {"won", "delivered", "lost", "rejected", "disqualified"}
+WON = {"won", "delivered"}
 
 
 def _by_currency(quotes) -> dict[str, int]:
@@ -23,7 +25,9 @@ def compute(leads: list[Lead], deals: list[dict]) -> dict:
     pitched = [d for d in deals if any(m["dir"] == "out" for m in d.get("thread", []))]
     replied = [d for d in deals if any(m["dir"] == "in" for m in d.get("thread", []))]
     qualified = [d for d in deals if d.get("assessment") and d.get("stage") != "disqualified"]
-    won = [d for d in deals if d.get("stage") == "won"]
+    won = [d for d in deals if d.get("stage") in WON]
+    orders = [d["order"] for d in deals if d.get("order")]
+    delivered = [d for d in deals if d.get("stage") == "delivered"]
     open_quoted = [d for d in deals if d.get("quote") and d.get("stage") not in CLOSED]
 
     def gate(d):
@@ -34,8 +38,10 @@ def compute(leads: list[Lead], deals: list[dict]) -> dict:
         "pitch_approval": sum(1 for d in deals if gate(d) == "pitch"),
         "waiting_on_lead": sum(1 for d in deals if gate(d) == "lead"),
         "reply_approval": sum(1 for d in deals if gate(d) == "reply"),
+        "delivery_approval": sum(1 for d in deals if gate(d) == "delivery"),
         "won": len(won),
-        "closed": sum(1 for d in deals if d.get("stage") in CLOSED - {"won"}),
+        "delivered": len(delivered),
+        "closed": sum(1 for d in deals if d.get("stage") in CLOSED - WON),
     }
 
     actors = Counter(a["actor"] for d in deals for a in d.get("audit", []))
@@ -64,16 +70,33 @@ def compute(leads: list[Lead], deals: list[dict]) -> dict:
             "reply_rate": round(100 * len(replied) / len(pitched)) if pitched else None,
             "won": len(won),
             # Never add rupees to dollars: one total per currency.
-            "revenue_won": _by_currency(d["quote"] for d in won if d.get("quote")),
+            # Invoiced amount once an order is built (pro-rata if short), the accepted quote before that.
+            "revenue_won": _by_currency(
+                {"currency": d["order"]["currency"], "price": d["order"]["invoice"]} if d.get("order") else d["quote"]
+                for d in won if d.get("quote")),
             "pipeline_value": _by_currency(d["quote"] for d in open_quoted),
             "automation_pct": round(100 * actors["agent"] / decisions) if decisions else None,
         },
+        # Unit economics of every built order: what the searches cost against what was invoiced.
+        "orders": [
+            {"deal": names.get(d["id"], d["id"]), "stage": d.get("stage"), **{k: d["order"][k] for k in (
+                "ordered", "delivered", "searches_total", "live_credits", "currency", "serp_cost", "invoice", "margin_pct")}}
+            for d in deals if d.get("order")
+        ],
+        "economics": {
+            cur: {"invoiced": sum(o["invoice"] for o in orders if o["currency"] == cur),
+                  "serp_cost": round(sum(o["serp_cost"] for o in orders if o["currency"] == cur), 2)}
+            for cur in sorted({o["currency"] for o in orders})
+        },
+        # What the agent learned about each source; the next discovery run uses the same numbers.
+        "learning": [{"source": s, **p} for s, p in sorted(source_performance(deals).items(), key=lambda x: -x[1]["pitched"])],
         "funnel": [
             {"stage": "Discovered", "count": len(leads)},
             {"stage": "Qualified", "count": len(qualified)},
             {"stage": "Pitched", "count": len(pitched)},
             {"stage": "Replied", "count": len(replied)},
             {"stage": "Won", "count": len(won)},
+            {"stage": "Delivered", "count": len(delivered)},
         ],
         "sources": [{"source": s, "count": c} for s, c in Counter(l.source for l in leads).most_common()],
         "markets": [{"market": m or "Global (Reddit)", "count": c}

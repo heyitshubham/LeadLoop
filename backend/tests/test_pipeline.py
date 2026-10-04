@@ -139,9 +139,42 @@ def test_negotiation_never_goes_below_the_floor_then_closes():
     assert deal["quote"]["price"] == 1600  # acceptance never re-prices
     deal = _approve(deal_id)
     assert deal["stage"] == "won"
-    assert deal["pending_gate"] is None
+    assert deal["pending_gate"]["gate"] == "delivery"  # the order is built and waits for you
     out = [m for m in deal["thread"] if m["dir"] == "out"]
     assert all(m["subject"].startswith("Re: ") for m in out[1:])
+
+
+def test_won_deal_builds_enriches_and_delivers_the_order():
+    deal_id = next(d["id"] for d in client.get("/api/deals").json() if d["lead"]["name"] == "Brewkart Cafe Supplies")
+    deal = client.get(f"/api/deals/{deal_id}").json()
+    order = deal["order"]
+    # Fixtures hold 12 businesses however many pages are asked for: duplicates are dropped, not padded.
+    assert order["ordered"] == 500 and order["delivered"] == 12 and order["duplicates_dropped"] > 0
+    assert order["invoice"] == round(1600 * 12 / 500) and order["invoice_note"].startswith("pro-rata")
+    assert order["searches"]["google_maps_reviews"] == order["enriched"] == 10
+    assert order["searches"]["google_jobs"] == 10 and order["live_credits"] == 0
+    assert order["searches_total"] <= 50 and order["serp_cost"] > 0 and order["margin_pct"] is not None
+    assert [r["quality"] for r in deal["order_preview"]] == sorted((r["quality"] for r in deal["order_preview"]), reverse=True)
+    assert deal["order_preview"][0]["customers_mention"].startswith("site visits")
+    assert deal["order_preview"][0]["hiring_now"] == "no"  # other employers' postings don't count
+    assert "12 of the 500 rows" in deal["delivery_email"]["body"]
+
+    csv_text = client.get(f"/api/deals/{deal_id}/dataset.csv").text
+    assert csv_text.splitlines()[0].startswith("name,type,address,city") and len(csv_text.splitlines()) == 13
+
+    deal = _approve(deal_id)
+    assert deal["stage"] == "delivered" and deal["pending_gate"] is None
+    assert deal["thread"][-1]["subject"] == deal["delivery_email"]["subject"]
+    assert client.get("/api/deals/nobody/dataset.csv").status_code == 404
+
+
+def test_quality_prefers_reachable_rows():
+    from app.pipeline.fulfil import quality
+
+    full = {"phone": "1", "website": "w", "address": "a", "rating": 4.1, "reviews": 30, "open_state": "Open"}
+    assert quality(full) == 100
+    assert quality({**full, "phone": None}) == 70
+    assert quality({}) == 0
 
 
 def test_editing_a_reply_sends_the_human_version():
@@ -198,10 +231,14 @@ def test_stats_reflect_the_pipeline():
     assert funnel["Discovered"] >= funnel["Qualified"] >= funnel["Pitched"] >= funnel["Replied"] >= funnel["Won"] >= 1
     brewkart = next(n for n in s["negotiations"] if n["deal"] == "Brewkart Cafe Supplies")
     assert [p["price"] for p in brewkart["points"]] == [4000, 3600, 3200, 1600, 1600, 1600]
-    assert s["kpis"]["revenue_won"]["INR"] >= 1600  # never mixed with USD
+    assert "USD" not in s["economics"] or "INR" in s["economics"]  # never mixed with USD
     assert brewkart["currency"] == "INR" and brewkart["points"][0]["pct"] == 100
     assert sum(b["count"] for b in s["intent_bins"]) == s["kpis"]["leads"]
-    assert set(s["flow"]) == {"discovered", "pitch_approval", "waiting_on_lead", "reply_approval", "won", "closed"}
+    assert set(s["flow"]) == {"discovered", "pitch_approval", "waiting_on_lead", "reply_approval",
+                              "delivery_approval", "won", "delivered", "closed"}
+    brew_order = next(o for o in s["orders"] if o["deal"] == "Brewkart Cafe Supplies")
+    assert brew_order["invoice"] == 38 and s["economics"]["INR"]["invoiced"] >= 38
+    assert s["kpis"]["revenue_won"]["INR"] >= 38  # what was invoiced, not the 1,600 quoted for 500 rows
     assert len(s["activity"]) <= 12
 
 
@@ -353,3 +390,27 @@ def test_batches_reask_skipped_items_and_never_default_to_buyer(monkeypatch):
     llm.last_fallback = None
     verdicts = llm.vet_companies(cands[:3])
     assert [k for k, _ in verdicts] == ["unclear"] * 3  # nothing answered: rules, never "buyer"
+
+
+def test_reply_rates_feed_back_into_scoring():
+    from app.learning import source_performance
+
+    def deal(source, replied, stage="pitched"):
+        thread = [{"dir": "out"}] + ([{"dir": "in"}] if replied else [])
+        return {"lead": {"source": source}, "thread": thread, "stage": stage}
+
+    deals = [deal("reddit", True, "delivered"), deal("reddit", True), deal("reddit", True),
+             deal("jobs", False), deal("jobs", False), deal("jobs", False), deal("news", True)]
+    perf = source_performance(deals)
+    assert perf["reddit"]["adjust"] > 0 and perf["jobs"]["adjust"] < 0
+    assert perf["news"]["adjust"] == 0  # one pitch is not enough to learn from
+    assert perf["reddit"]["won"] == 1 and perf["reddit"]["reply_rate"] == 100
+    assert perf["reddit"]["reason"].startswith("learned: reddit leads replied 3 of 3 times")
+
+    from app.discovery.service import discover
+    from app.serp.client import serp
+
+    base = {l.name: l.intent_score for l in discover(serp)}
+    nudged = {l.name: l for l in discover(serp, learned=perf)}
+    assert nudged["r/delhi poster"].intent_score == min(100, base["r/delhi poster"] + perf["reddit"]["adjust"])
+    assert any(e.startswith("learned: reddit") for e in nudged["r/delhi poster"].evidence)
