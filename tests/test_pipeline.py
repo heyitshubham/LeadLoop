@@ -1,0 +1,355 @@
+"""End-to-end DEMO runs: discover -> pitch -> gate -> lead replies -> negotiate -> close.
+
+Fully offline: LEADLOOP_DEMO=1 forces fixtures and template LLM output, sandbox mail
+points at a closed port so messages land in the outbox folder, and the background
+scheduler is off so tests drive every step.
+"""
+
+import os
+import tempfile
+
+os.environ.update(
+    LEADLOOP_DEMO="1",
+    LEADLOOP_DATA_DIR=tempfile.mkdtemp(),
+    LEADLOOP_SEND_MODE="sandbox",
+    SANDBOX_SMTP_PORT="1",
+    LEADLOOP_SCHEDULER="0",
+    PRICE_PER_ROW_INR="4",
+    MIN_ORDER_INR="1500",
+    DEFAULT_ROWS="500",
+    DISCOUNT_STEP_PCT="10",
+    MAX_DISCOUNT_PCT="20",
+    MAX_FOLLOWUPS="2",
+    LEADLOOP_MARKETS="India,United States",
+    PRICE_PER_ROW_USD="0.10",
+    MIN_ORDER_USD="49",
+    DEFAULT_CURRENCY="USD",
+)
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from app import store  # noqa: E402
+from app.discovery.scoring import score_signal  # noqa: E402
+from app.main import app  # noqa: E402
+from app.models import Signal  # noqa: E402
+from app.pipeline.inbox import clean_body  # noqa: E402
+
+client = TestClient(app)
+
+
+def _lead_id(name: str) -> str:
+    leads = client.post("/api/discover").json()
+    return next(l["id"] for l in leads if l["name"] == name)
+
+
+def _pitched(name: str, email: str | None = None) -> str:
+    """Starts a deal, approves the pitch, returns the deal id (now waiting on the lead)."""
+    lead_id = _lead_id(name)
+    client.post(f"/api/leads/{lead_id}/deal", json={"email": email} if email else {})
+    deal = client.post(f"/api/deals/{lead_id}/decision", json={"action": "approve"}).json()
+    assert deal["pending_gate"]["gate"] == "lead"
+    return lead_id
+
+
+def _reply(deal_id: str, text: str) -> dict:
+    return client.post(f"/api/deals/{deal_id}/simulate-reply", json={"text": text}).json()
+
+
+def _approve(deal_id: str) -> dict:
+    return client.post(f"/api/deals/{deal_id}/decision", json={"action": "approve"}).json()
+
+
+# --- discovery ----------------------------------------------------------------
+
+
+def test_scoring_explains_itself():
+    score, reasons = score_signal(Signal(source="reddit", title="Need a list of gyms in Mumbai", posted="1 day ago"))
+    assert score == 45 + 10 + 15
+    assert "asks for: need a list" in reasons
+    assert "posted 1 day ago" in reasons
+
+
+def test_discovery_ranks_and_filters():
+    leads = client.post("/api/discover").json()
+    names = [l["name"] for l in leads]
+    assert "Quantive Labs" not in names  # irrelevant, stale job posting
+    assert "SalonSuite" in names  # funded 6 days ago: fresh budget is a buying signal
+    salon = next(l for l in leads if l["name"] == "SalonSuite")
+    assert any("raised funding" in e for e in salon["evidence"])
+    brewkart = next(l for l in leads if l["name"] == "Brewkart Cafe Supplies")
+    assert len(brewkart["signals"]) == 2  # job post + funding news merged
+    assert leads == sorted(leads, key=lambda l: -l["intent_score"])
+
+
+# --- pitch gate ---------------------------------------------------------------
+
+
+def test_pitch_waits_for_approval_and_sends_the_edit():
+    lead_id = _lead_id("Nestora Realty")
+    deal = client.post(f"/api/leads/{lead_id}/deal", json={"email": "ops@nestora.example"}).json()
+    assert deal["stage"] == "awaiting_approval"
+    assert deal["assessment"]["sample_city"] == "Pune"
+    assert len(deal["sample"]) == 10
+    assert deal["pending_gate"]["gate"] == "pitch"
+    assert client.post(f"/api/leads/{lead_id}/deal", json={}).status_code == 409
+
+    edited = {"subject": "Pune agency data", "body": "Hi, sample attached."}
+    deal = client.post(f"/api/deals/{lead_id}/decision", json={"action": "edit", "draft": edited}).json()
+    assert deal["stage"] == "pitched"
+    assert deal["pitch"] == edited
+    assert deal["sent_to"] == "ops@nestora.example"
+    assert deal["delivery"] == "outbox"
+    assert deal["pending_gate"]["gate"] == "lead"
+    assert [m["dir"] for m in deal["thread"]] == ["out"]
+    assert client.post(f"/api/deals/{lead_id}/decision", json={"action": "approve"}).status_code == 409
+
+
+def test_rejecting_the_pitch_ends_the_deal():
+    lead_id = _lead_id("MediLink Health")
+    client.post(f"/api/leads/{lead_id}/deal", json={})
+    deal = client.post(f"/api/deals/{lead_id}/decision", json={"action": "reject", "note": "not now"}).json()
+    assert deal["stage"] == "rejected"
+    assert "sent_to" not in deal
+
+
+# --- negotiation --------------------------------------------------------------
+
+
+def test_negotiation_never_goes_below_the_floor_then_closes():
+    deal_id = _pitched("Brewkart Cafe Supplies", "buy@brewkart.example")
+
+    deal = _reply(deal_id, "Interesting. How much for 1,000 rows across Bengaluru?")
+    assert deal["read"]["intent"] == "interested"
+    assert deal["quote"] == {"currency": "INR", "rows": 1000, "list_price": 4000, "discount_pct": 0, "price": 4000, "note": "list price"}
+    assert deal["pending_gate"]["gate"] == "reply"
+    assert "₹4,000" in deal["draft"]["body"]
+    deal = _approve(deal_id)
+    assert deal["pending_gate"]["gate"] == "lead"
+
+    prices = []
+    for _ in range(4):
+        _reply(deal_id, "That's too expensive for our budget, can you do better?")
+        deal = _approve(deal_id)
+        prices.append((deal["quote"]["rows"], deal["quote"]["price"]))
+    # 10% off, 20% off (max), then a smaller scope at the max discount — never lower.
+    assert prices == [(1000, 3600), (1000, 3200), (500, 1600), (500, 1600)]
+
+    deal = _reply(deal_id, "OK deal, please send the invoice.")
+    assert deal["read"]["intent"] == "accept"
+    assert deal["quote"]["price"] == 1600  # acceptance never re-prices
+    deal = _approve(deal_id)
+    assert deal["stage"] == "won"
+    assert deal["pending_gate"] is None
+    out = [m for m in deal["thread"] if m["dir"] == "out"]
+    assert all(m["subject"].startswith("Re: ") for m in out[1:])
+
+
+def test_editing_a_reply_sends_the_human_version():
+    deal_id = _pitched("r/delhi poster")
+    _reply(deal_id, "What does each row include?")
+    deal = client.post(
+        f"/api/deals/{deal_id}/decision", json={"action": "edit", "draft": {"body": "Name, phone, rating. ₹2,000."}}
+    ).json()
+    assert deal["thread"][-1]["body"] == "Name, phone, rating. ₹2,000."
+    assert deal["audit"][-2]["actor"] == "human"
+
+
+def test_unsubscribe_suppresses_the_address():
+    deal_id = _pitched("r/mumbai poster", "owner@gymapp.example")
+    deal = _reply(deal_id, "Please stop emailing me.")
+    assert deal["stage"] == "lost"
+    assert deal["pending_gate"] is None
+    assert store.is_suppressed("owner@gymapp.example")
+    assert [m["dir"] for m in deal["thread"]] == ["out", "in"]  # we did not answer
+
+
+def test_followups_then_close():
+    from app.pipeline import runner
+
+    lead = store.list_leads()[0].model_copy(update={"id": "followup-lead", "name": "Followup Co"})
+    store.save_leads([lead])
+    store.add_deal(lead.id)
+    runner.start(lead.id, lead.model_dump(), autopilot=["pitch", "reply"])  # fully automatic
+    assert runner.view(lead.id)["pending_gate"]["gate"] == "lead"
+
+    for expected in (1, 2):
+        deal = client.post(f"/api/deals/{lead.id}/nudge").json()
+        assert deal["followups"] == expected
+        assert deal["pending_gate"]["gate"] == "lead"
+    deal = client.post(f"/api/deals/{lead.id}/nudge").json()
+    assert deal["stage"] == "lost"
+    assert deal["pending_gate"] is None
+
+
+def test_sandbox_rejects_bad_email_and_live_only_endpoints():
+    lead_id = _lead_id("r/delhi poster")
+    assert client.post(f"/api/leads/{lead_id}/deal", json={"email": "not-an-email"}).status_code == 422
+    assert client.post("/api/inbox/poll").status_code == 400
+
+
+def test_clean_body_drops_quoted_thread():
+    text = "Sounds good, 2000 rows please.\n\nOn Mon, 5 Oct 2026 at 10:00, Desk <d@x.in> wrote:\n> old pitch"
+    assert clean_body(text) == "Sounds good, 2000 rows please."
+
+
+def test_stats_reflect_the_pipeline():
+    s = client.get("/api/stats").json()
+    funnel = {f["stage"]: f["count"] for f in s["funnel"]}
+    assert funnel["Discovered"] >= funnel["Qualified"] >= funnel["Pitched"] >= funnel["Replied"] >= funnel["Won"] >= 1
+    brewkart = next(n for n in s["negotiations"] if n["deal"] == "Brewkart Cafe Supplies")
+    assert [p["price"] for p in brewkart["points"]] == [4000, 3600, 3200, 1600, 1600, 1600]
+    assert s["kpis"]["revenue_won"]["INR"] >= 1600  # never mixed with USD
+    assert brewkart["currency"] == "INR" and brewkart["points"][0]["pct"] == 100
+    assert sum(b["count"] for b in s["intent_bins"]) == s["kpis"]["leads"]
+    assert set(s["flow"]) == {"discovered", "pitch_approval", "waiting_on_lead", "reply_approval", "won", "closed"}
+    assert len(s["activity"]) <= 12
+
+
+def test_discovery_streams_every_step():
+    import json as _json
+
+    body = client.get("/api/discover/stream").text
+    events = [_json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")]
+    steps = [e for e in events if e["type"] == "step"]
+    ids = list(dict.fromkeys(e["id"] for e in steps))
+    assert ids == ["plan", "jobs-in-0", "jobs-in-1", "jobs-in-2", "jobs-us-0", "jobs-us-1", "jobs-us-2",
+                   "reddit", "news-in", "news-us", "merge", "score", "vet"]
+    # every search goes running -> done, and says where the data came from
+    for sid in ("jobs-in-0", "jobs-us-0", "reddit", "news-in"):
+        statuses = [e["status"] for e in steps if e["id"] == sid]
+        assert statuses == ["running", "done"]
+        done = next(e for e in steps if e["id"] == sid and e["status"] == "done")
+        assert done["source"] in ("demo", "cache", "live") and done["items"]
+    assert events[-1]["type"] == "done" and events[-1]["count"] == 6 and events[-1]["credits_spent"] == 0
+    score = next(e for e in steps if e["id"] == "score" and e["status"] == "done")
+    assert any(i.startswith("✗ Quantive Labs") for i in score["items"])
+
+
+def test_company_names_are_read_from_headlines():
+    from app.llm import _demo_company, extract_companies
+
+    assert _demo_company("Bengaluru D2C brand Brewkart Cafe Supplies raises ₹12 crore seed round") == "Brewkart Cafe Supplies"
+    assert _demo_company("SalonSuite raises pre-seed to digitise salons in Chennai") == "SalonSuite"
+    assert _demo_company("Zepto-backed Quickly Labs secures $2M from Peak XV") == "Quickly Labs"
+    assert _demo_company("5 Indian startups that raised funding this week") is None
+    assert extract_companies([]) == []
+
+
+def test_news_clusters_are_flattened_and_named(monkeypatch):
+    from app.discovery import signals
+    from app.serp.client import serp
+
+    clustered = {"news_results": [
+        {"title": "Fintech Paysy raises ₹30 crore in Series A", "link": "https://x.example/a"},
+        {"highlight": {"title": "Funding roundup"}, "stories": [
+            {"title": "Agritech startup KhetBuddy bags $1M seed", "link": "https://x.example/b"},
+            {"title": "10 startups that raised money this week", "link": "https://x.example/c"},
+        ]},
+    ]}
+    monkeypatch.setattr(serp, "fetch", lambda engine, **p: (clustered, "live"))
+    events = []
+    sigs = signals._news_for(serp, events.append, {"name": "India", "gl": "in", "currency": "INR"})
+    assert [s.company for s in sigs] == ["Paysy", "KhetBuddy"]
+    assert {s.market for s in sigs} == {"India"}
+    extract = [e for e in events if e["id"] == "news-extract-in" and e["status"] == "done"][0]
+    assert extract["summary"].startswith("2 of 3 headlines name a single company")
+    assert "pattern rule" in extract["summary"]  # DEMO mode: the panel says the AI didn't do this
+
+
+def test_usd_pricing_and_currency_per_lead():
+    from app.pipeline.pricing import money, quote
+
+    assert [quote(1000, o, "USD").price for o in range(4)] == [100, 90, 80, 40]
+    assert quote(None, 0, "USD").list_price == 50  # 500 default rows x $0.10, above the $49 minimum
+    assert money(1234567, "INR") == "₹12,34,567" and money(1500, "USD") == "$1,500"
+
+    leads = {l["name"]: l for l in client.post("/api/discover").json()}
+    assert leads["Nestora Realty"]["market"] == "India" and leads["Nestora Realty"]["currency"] == "INR"
+    assert leads["r/delhi poster"]["market"] is None and leads["r/delhi poster"]["currency"] == "USD"
+
+
+def test_buyer_check_drops_job_boards_and_competitors():
+    from app.discovery.service import company_key
+    from app.llm import _demo_vet
+
+    assert _demo_vet("remote quest jobs")[0] == "job_board"
+    assert _demo_vet("HireGrid")[0] == "job_board"
+    assert _demo_vet("SenseGrid Market Research")[0] == "data_vendor"
+    assert _demo_vet("Nestora Realty")[0] == "unclear"  # without the AI, nobody is called a buyer
+    assert company_key("Hive Business Solution Pvt. Ltd.") == company_key("Hive Business Solution")
+
+
+def test_dates_with_and_without_timezones():
+    from datetime import datetime, timedelta, timezone
+
+    from app.discovery.scoring import days_ago
+
+    two_days = datetime.now(timezone.utc) - timedelta(days=2)
+    assert round(days_ago(two_days.isoformat())) == 2
+    assert round(days_ago(two_days.replace(tzinfo=None).isoformat())) == 2  # no timezone: treated as UTC
+    assert round(days_ago(two_days.strftime("%Y-%m-%dT%H:%M:%SZ"))) == 2
+    assert days_ago("12 days ago") == 12 and days_ago("2 weeks ago") == 14
+    assert days_ago("10/03/2026, 07:00 AM, +0000 UTC") is None and days_ago(None) is None
+
+
+def test_strict_schema_is_flat_and_closed():
+    from app.llm import CompanyVerdicts, HeadlineCompanies, strict_schema
+    from app.models import ReplyRead
+
+    def walk(node):
+        if isinstance(node, dict):
+            assert "$ref" not in node and "default" not in node
+            if node.get("type") == "object" and "properties" in node:
+                assert node["additionalProperties"] is False
+                assert set(node["required"]) == set(node["properties"])
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    for model in (CompanyVerdicts, HeadlineCompanies, ReplyRead):
+        schema = strict_schema(model)
+        assert "$defs" not in schema
+        walk(schema)
+
+
+def test_provider_chain_falls_through(monkeypatch):
+    from app import llm
+    from app.models import EmailDraft
+
+    monkeypatch.setattr(llm, "_groq", object())
+    monkeypatch.setattr(llm, "_gemini", object())
+    monkeypatch.setattr(llm, "_parse_groq", lambda p, s, effort="low": (None, "Groq rate limit on openai/gpt-oss-120b"))
+    monkeypatch.setattr(llm, "_parse_gemini", lambda p, s: (EmailDraft(body="hi"), None))
+    assert llm._parse("x", EmailDraft).body == "hi"
+    assert llm.last_provider == "Gemini" and llm.last_fallback is None
+
+    monkeypatch.setattr(llm, "_parse_gemini", lambda p, s: (None, "Gemini free-tier daily quota used up"))
+    assert llm._parse("x", EmailDraft) is None
+    assert llm.last_fallback == "Groq rate limit on openai/gpt-oss-120b; Gemini free-tier daily quota used up"
+
+
+def test_batches_reask_skipped_items_and_never_default_to_buyer(monkeypatch):
+    from app import llm
+
+    calls = []
+
+    def fake_parse(prompt, schema, effort="low"):
+        n = sum(1 for line in prompt.splitlines() if line[:1].isdigit() and ". " in line)
+        calls.append(n)
+        # First pass: answer only the first item of each batch; re-ask: answer everything.
+        answer = range(n) if len(calls) > 2 else range(1)
+        llm.last_provider = "Groq"
+        return llm.CompanyVerdicts(items=[llm.CompanyVerdict(index=i, kind="buyer", reason="ok") for i in answer])
+
+    monkeypatch.setattr(llm, "_parse", fake_parse)
+    cands = [{"name": f"Co {i}", "evidence": "x"} for i in range(20)]
+    verdicts = llm.vet_companies(cands)
+    assert calls[:2] == [15, 5]  # batches of 15
+    assert all(k == "buyer" for k, _ in verdicts) and llm.last_unanswered == 0
+
+    monkeypatch.setattr(llm, "_parse", lambda p, s, effort="low": llm.CompanyVerdicts(items=[]))
+    llm.last_fallback = None
+    verdicts = llm.vet_companies(cands[:3])
+    assert [k for k, _ in verdicts] == ["unclear"] * 3  # nothing answered: rules, never "buyer"

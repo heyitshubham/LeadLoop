@@ -1,0 +1,112 @@
+{
+ "local_results": [
+  {
+   "title": "Demo Skyline Homes",
+   "address": "1 MG Road, Pune",
+   "phone": "+91 9800000000",
+   "rating": 3.8,
+   "reviews": 40,
+   "type": "Real estate agency",
+   "website": "https://demo-0.example.com"
+  },
+  {
+   "title": "Demo Baner Properties",
+   "address": "2 MG Road, Pune",
+   "phone": "+91 9800000001",
+   "rating": 3.9,
+   "reviews": 77,
+   "type": "Real estate agency",
+   "website": "https://demo-1.example.com"
+  },
+  {
+   "title": "Demo Kothrud Realtors",
+   "address": "3 MG Road, Pune",
+   "phone": "+91 9800000002",
+   "rating": 4.0,
+   "reviews": 114,
+   "type": "Real estate agency",
+   "website": "https://demo-2.example.com"
+  },
+  {
+   "title": "Demo Hinjewadi Estates",
+   "address": "4 MG Road, Pune",
+   "phone": "+91 9800000003",
+   "rating": 4.1,
+   "reviews": 151,
+   "type": "Real estate agency",
+   "website": "https://demo-3.example.com"
+  },
+  {
+   "title": "Demo Aundh Spaces",
+   "address": "5 MG Road, Pune",
+   "phone": "+91 9800000004",
+   "rating": 4.2,
+   "reviews": 188,
+   "type": "Real estate agency",
+   "website": "https://demo-4.example.com"
+  },
+  {
+   "title": "Demo Wakad Homes",
+   "address": "6 MG Road, Pune",
+   "phone": "+91 9800000005",
+   "rating": 4.3,
+   "reviews": 225,
+   "type": "Real estate agency",
+   "website": "https://demo-5.example.com"
+  },
+  {
+   "title": "Demo Viman Nagar Realty",
+   "address": "7 MG Road, Pune",
+   "phone": "+91 9800000006",
+   "rating": 4.4,
+   "reviews": 262,
+   "type": "Real estate agency",
+   "website": "https://demo-6.example.com"
+  },
+  {
+   "title": "Demo Kharadi Brokers",
+   "address": "8 MG Road, Pune",
+   "phone": "+91 9800000007",
+   "rating": 4.5,
+   "reviews": 299,
+   "type": "Real estate agency",
+   "website": "https://demo-7.example.com"
+  },
+  {
+   "title": "Demo Pashan Properties",
+   "address": "9 MG Road, Pune",
+   "phone": "+91 9800000008",
+   "rating": 4.6,
+   "reviews": 336,
+   "type": "Real estate agency",
+   "website": "https://demo-8.example.com"
+  },
+  {
+   "title": "Demo Magarpatta Living",
+   "address": "10 MG Road, Pune",
+   "phone": "+91 9800000009",
+   "rating": 4.7,
+   "reviews": 373,
+   "type": "Real estate agency",
+   "website": "https://demo-9.example.com"
+  },
+  {
+   "title": "Demo Hadapsar Homes",
+   "address": "11 MG Road, Pune",
+   "phone": "+91 9800000010",
+   "rating": 3.8,
+   "reviews": 410,
+   "type": "Real estate agency",
+   "website": "https://demo-10.example.com"
+  },
+  {
+   "title": "Demo Camp Estates",
+   "address": "12 MG Road, Pune",
+   "phone": "+91 9800000011",
+   "rating": 3.9,
+   "reviews": 447,
+   "type": "Real estate agency",
+   "website": "https://demo-11.example.com"
+  }
+ ]
+}

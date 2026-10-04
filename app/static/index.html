@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeadLoop</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #16181d; --muted: #646b78; --line: #e3e6eb;
+    --accent: #2f5bea; --accent-ink: #ffffff; --good: #1f8a4c; --warn: #b26a00; --bad: #c0362c;
+    --chip: #eef1f6; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --grid: #eceef2; --track: #f1f3f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1115; --panel: #171a21; --ink: #e8eaee; --muted: #9aa1ad; --line: #2a2f39;
+      --accent: #6d8dff; --accent-ink: #0b0d12; --good: #4cc27f; --warn: #e3a447; --bad: #ff7468;
+      --chip: #222733; --shadow: none;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --grid: #262b35; --track: #1e222a; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px 20px;
+    border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 17px; margin: 0 8px 0 0; letter-spacing: -.01em; }
+  header h1 span { color: var(--accent); }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+  .badge { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+  .badge b { color: var(--ink); font-weight: 600; }
+  button, .btn { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    padding: 7px 12px; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  button.danger { color: var(--bad); }
+  button:disabled { opacity: .55; cursor: wait; }
+  main { display: grid; grid-template-columns: repeat(5, minmax(200px, 1fr)); gap: 14px; padding: 16px 20px; align-items: start; }
+  .col { background: transparent; min-width: 0; }
+  .col h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+    margin: 4px 2px 10px; display: flex; justify-content: space-between; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px;
+    margin-bottom: 9px; cursor: pointer; box-shadow: var(--shadow); }
+  .card:hover { border-color: var(--accent); }
+  .card.active { outline: 2px solid var(--accent); }
+  .card .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .card .name { font-weight: 600; overflow-wrap: anywhere; }
+  .card .why { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+  .score { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 12px; padding: 2px 7px; border-radius: 6px; background: var(--chip); }
+  .score.hi { color: var(--good); } .score.mid { color: var(--warn); }
+  .chips { display: flex; gap: 4px; margin-top: 7px; flex-wrap: wrap; }
+  .chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+  .empty { color: var(--muted); font-size: 13px; padding: 14px 4px; }
+  aside { position: fixed; top: 0; right: 0; height: 100vh; width: min(560px, 100vw); background: var(--panel);
+    border-left: 1px solid var(--line); overflow-y: auto; transform: translateX(100%); transition: transform .18s ease;
+    z-index: 3; padding: 18px 20px 40px; }
+  aside.open { transform: none; }
+  aside h3 { margin: 0; font-size: 18px; }
+  aside h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 22px 0 8px; }
+  .close { float: right; }
+  ul.evidence { margin: 0; padding-left: 18px; } ul.evidence li { margin: 3px 0; }
+  .signal { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
+  .signal a { color: var(--accent); }
+  .muted { color: var(--muted); }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  input[type=text], textarea { width: 100%; font: inherit; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  textarea { min-height: 220px; resize: vertical; }
+  .gate { border: 2px solid var(--warn); border-radius: 10px; padding: 12px; }
+  .gate .label { color: var(--warn); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  pre.mail { white-space: pre-wrap; font: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin: 6px 0 0; }
+  .timeline { list-style: none; margin: 0; padding: 0; }
+  .timeline li { padding: 6px 0 6px 14px; border-left: 2px solid var(--line); position: relative; }
+  .timeline li::before { content: ""; position: absolute; left: -5px; top: 12px; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .timeline li.human::before { background: var(--accent); }
+  .who { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--muted); }
+  .timeline li.human .who { color: var(--accent); }
+  .stage { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--chip); }
+  label.check { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg);
+    padding: 8px 14px; border-radius: 8px; font-size: 13px; display: none; z-index: 4; }
+
+  .bubble { border-radius: 10px; padding: 9px 11px; margin: 8px 0; max-width: 92%; white-space: pre-wrap; border: 1px solid var(--line); }
+  .bubble.out { background: var(--bg); margin-left: auto; }
+  .bubble.in { background: var(--chip); border-color: transparent; }
+  .bubble .meta { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+  .quote { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+  .quote div span { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .quote div b { font-size: 16px; font-variant-numeric: tabular-nums; }
+  .quote .note { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px; }
+  .waiting { border: 1px dashed var(--line); border-radius: 10px; padding: 12px; }
+  .presets { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+  .presets button { font-size: 12px; padding: 4px 9px; border-radius: 999px; }
+  .err { color: var(--bad); font-weight: 600; margin: 6px 0; }
+  .card.won { border-left: 3px solid var(--good); }
+  textarea.short { min-height: 80px; }
+
+  /* --- views & insights --- */
+  .tabs { display: flex; gap: 2px; background: var(--chip); padding: 3px; border-radius: 9px; }
+  .tabs button { border: 0; background: transparent; padding: 5px 12px; border-radius: 7px; color: var(--muted); font-weight: 600; }
+  .tabs button.on { background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
+  #insights { padding: 16px 20px 40px; display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); min-width: 0; }
+  .panel h3 { margin: 0 0 2px; font-size: 14px; }
+  .panel .sub { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
+  .span-12 { grid-column: span 12; } .span-7 { grid-column: span 7; } .span-5 { grid-column: span 5; }
+  .span-6 { grid-column: span 6; } .span-4 { grid-column: span 4; } .span-8 { grid-column: span 8; }
+  .kpis { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
+  .kpi .l { font-size: 12px; color: var(--muted); }
+  .kpi .v { font-size: 24px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .kpi .h { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .flow { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding-bottom: 4px; }
+  .node { flex: 1 0 118px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--bg); position: relative; }
+  .node.you { border: 2px solid var(--accent); }
+  .node.hot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .node .n { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .node .t { font-size: 12.5px; font-weight: 600; }
+  .node .w { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-top: 4px; }
+  .arrow { flex: 0 0 22px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  .loopnote { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .hbars { display: grid; grid-template-columns: max-content 1fr; gap: 8px 10px; align-items: center; }
+  .hbars .lab { font-size: 12.5px; color: var(--muted); }
+  .hbars .track { position: relative; height: 20px; }
+  .hbars .bar { height: 20px; border-radius: 0 4px 4px 0; background: var(--s1); min-width: 2px; }
+  .hbars .val { position: absolute; top: 1px; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stack { display: flex; gap: 2px; height: 22px; }
+  .stack div { height: 100%; }
+  .stack div:first-child { border-radius: 4px 0 0 4px; } .stack div:last-child { border-radius: 0 4px 4px 0; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .legend b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  svg.chart { display: block; overflow: visible; max-width: 100%; }
+  svg.chart text { fill: var(--muted); font-size: 11px; font-family: inherit; }
+  svg.chart text.lbl { fill: var(--ink); font-weight: 600; }
+  svg.chart .gridline { stroke: var(--grid); stroke-width: 1; }
+  details.tbl { margin-top: 10px; font-size: 12.5px; }
+  details.tbl summary { color: var(--muted); cursor: pointer; }
+  details.tbl table { margin-top: 6px; }
+  .feed { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto; }
+  .feed li { padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .feed li:last-child { border-bottom: 0; }
+  .feed .who { margin-right: 6px; }
+  #tip { position: fixed; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 12px; padding: 6px 9px;
+    border-radius: 7px; z-index: 5; display: none; max-width: 260px; line-height: 1.35; }
+  .nodata { color: var(--muted); font-size: 13px; padding: 18px 0; text-align: center; }
+  @media (max-width: 1100px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .span-7, .span-5, .span-6, .span-4, .span-8 { grid-column: span 12; } }
+  @media (max-width: 560px) { #insights { padding: 12px 16px 32px; } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+  /* --- live agent run panel --- */
+  .runhead { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .runhead h3 { margin: 0; font-size: 17px; flex: 1; }
+  .elapsed { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+  .steps { list-style: none; margin: 14px 0 0; padding: 0; }
+  .step { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); animation: stepin .22s ease; }
+  .step:first-child { border-top: 0; }
+  @keyframes stepin { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .ico { width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; display: grid; place-items: center; }
+  .step.running .ico { border: 2px solid var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+  .step.done .ico { background: var(--good); color: var(--panel); }
+  .step.error .ico { background: var(--bad); color: var(--panel); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .step .t1 { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+  .step .t1 b { font-weight: 600; }
+  .step .ms { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .q { color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; }
+  .step .sum { margin-top: 4px; font-size: 13.5px; }
+  .src { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+  .src.live { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+  .step details { margin-top: 6px; font-size: 12.5px; }
+  .step details summary { color: var(--muted); cursor: pointer; }
+  .step details ul { margin: 6px 0 0; padding-left: 2px; list-style: none; color: var(--muted); }
+  .step details li { margin: 3px 0; }
+  .step details li.keep { color: var(--ink); }
+  .runfoot { margin-top: 16px; padding: 12px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+  .runfoot .big { font-size: 16px; font-weight: 650; }
+  .thinking { color: var(--muted); font-size: 13px; }
+  .thinking::after { content: "…"; animation: dots 1.2s steps(4) infinite; display: inline-block; width: 1.2em; overflow: hidden; vertical-align: bottom; }
+  @keyframes dots { from { width: 0; } to { width: 1.2em; } }
+  .card.fresh { animation: fresh 1.6s ease; }
+  @keyframes fresh { 0% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: var(--shadow); } }
+  @media (prefers-reduced-motion: reduce) { .step, .card.fresh { animation: none; } .step.running .ico { animation-duration: 3s; } .thinking::after { animation: none; } }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr 1fr 1fr; } }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { main { grid-template-columns: 1fr; padding: 12px 16px; } header { padding: 12px 16px; } }
+  @media (max-width: 560px) { .badges { order: 5; flex-basis: 100%; } .badge { font-size: 11px; } header h1 { flex: 1; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Lead<span>Loop</span></h1>
+  <nav class="tabs" role="tablist"><button class="on" data-view="board" role="tab">Board</button><button data-view="insights" role="tab">Insights</button></nav>
+  <div class="badges" id="badges"></div>
+  <a class="btn" href="http://localhost:8025" target="_blank" rel="noopener">Mailpit inbox ↗</a>
+  <button class="primary" id="discover">Find leads</button>
+</header>
+
+<main id="board">
+  <section class="col"><h2>Discovered <span id="n-found"></span></h2><div id="c-found"></div></section>
+  <section class="col"><h2>Needs your approval <span id="n-gate"></span></h2><div id="c-gate"></div></section>
+  <section class="col"><h2>Waiting on lead <span id="n-waiting"></span></h2><div id="c-waiting"></div></section>
+  <section class="col"><h2>Won <span id="n-won"></span></h2><div id="c-won"></div></section>
+  <section class="col"><h2>Closed out <span id="n-closed"></span></h2><div id="c-closed"></div></section>
+</main>
+
+<section id="insights" hidden></section>
+
+<aside id="drawer"></aside>
+<aside id="run" aria-live="polite"></aside>
+<div id="tip" role="tooltip"></div>
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const safeUrl = (u) => (/^https?:\/\//i.test(u || "") ? esc(u) : "#");
+// ₹4,000 (Indian grouping) / $100 — every amount is shown in its deal's own currency.
+const money = (n, cur = "INR") => new Intl.NumberFormat(cur === "INR" ? "en-IN" : "en-US",
+  { style: "currency", currency: cur, maximumFractionDigits: 0 }).format(Number(n || 0));
+const moneyTotals = (totals) => Object.entries(totals || {}).map(([c, n]) => money(n, c)).join(" · ") || "—";
+let leads = [], deals = {}, health = {}, selected = null, drawerDirty = false;
+
+const PRESETS = [
+  "Interesting. How much for 1,000 rows?",
+  "That's too expensive for our budget, can you do better?",
+  "What does each row include?",
+  "OK deal, please send the invoice.",
+  "Not now, maybe next quarter.",
+  "Please stop emailing me.",
+];
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { headers: { "content-type": "application/json" }, ...opts });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : res.statusText);
+  return body;
+}
+const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body || {}) });
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => (t.style.display = "none"), 3600); }
+const scoreClass = (s) => (s >= 75 ? "hi" : s >= 55 ? "mid" : "");
+
+async function refresh(auto = false) {
+  const [h, l, d] = await Promise.all([api("/api/health"), api("/api/leads"), api("/api/deals")]);
+  health = h; leads = l; deals = Object.fromEntries(d.map((x) => [x.id, x]));
+  const live = h.send_mode === "live";
+  $("badges").innerHTML =
+    `<span class="badge">SerpApi <b>${esc(h.serp_mode)}</b></span>` +
+    `<span class="badge">LLM <b>${esc(h.llm_mode)}</b></span>` +
+    `<span class="badge">Searches <b>${h.credits_used}/${h.credit_budget}</b></span>` +
+    `<span class="badge" title="${esc(h.sender)}">Mail <b style="color:${live ? "var(--bad)" : "inherit"}">${live ? "LIVE" : "SANDBOX"}</b> · ${h.sends_today}/${h.daily_send_cap} today</span>`;
+  renderBoard();
+  if (selected && !(auto && drawerDirty)) renderDrawer(selected);
+  if (view === "insights") loadInsights();
+}
+
+function column(lead) {
+  const d = deals[lead.id];
+  if (!d) return "found";
+  const gate = d.pending_gate?.gate;
+  if (gate === "pitch" || gate === "reply") return "gate";
+  if (gate === "lead") return "waiting";
+  if (d.stage === "won") return "won";
+  if (["rejected", "disqualified", "lost"].includes(d.stage)) return "closed";
+  return "gate";
+}
+
+function card(lead) {
+  const d = deals[lead.id];
+  const gate = d?.pending_gate?.gate;
+  let why = d?.assessment?.need_summary || lead.evidence[1] || lead.evidence[0];
+  if (gate === "reply") why = d.draft?.kind === "followup" ? "Follow-up drafted — review it" : `Lead said: ${d.read?.summary || ""}`;
+  if (d?.quote && ["reply", "lead"].includes(gate)) why += ` · quote ${money(d.quote.price, d.quote.currency)}`;
+  if (d?.stage === "won") why = `Won · ${d.quote ? `${d.quote.rows.toLocaleString("en-IN")} rows for ${money(d.quote.price, d.quote.currency)}` : ""}`;
+  const sources = [...new Set(lead.signals.map((s) => s.source))];
+  const stage = d && ["rejected", "disqualified", "lost"].includes(d.stage) ? `<span class="chip">${esc(d.stage)}</span>` : "";
+  return `<div class="card ${selected === lead.id ? "active" : ""} ${d?.stage === "won" ? "won" : ""}" data-id="${esc(lead.id)}">
+    <div class="top"><span class="name">${esc(lead.name)}</span><span class="score ${scoreClass(lead.intent_score)}">${lead.intent_score}</span></div>
+    <div class="why">${esc(why)}</div>
+    <div class="chips">${sources.map((s) => `<span class="chip">${esc(s)}</span>`).join("")}<span class="chip">${esc(lead.market || "Global")} · ${esc(lead.currency)}</span>${stage}</div>
+  </div>`;
+}
+
+function renderBoard() {
+  const cols = { found: [], gate: [], waiting: [], won: [], closed: [] };
+  leads.forEach((l) => cols[column(l)].push(l));
+  for (const [k, list] of Object.entries(cols)) {
+    $("n-" + k).textContent = list.length || "";
+    $("c-" + k).innerHTML = list.length ? list.map(card).join("") :
+      `<div class="empty">${k === "found" && !leads.length ? "No leads yet — click <b>Find leads</b>." : "—"}</div>`;
+  }
+  document.querySelectorAll(".card").forEach((el) => (el.onclick = () => openDrawer(el.dataset.id)));
+}
+
+function openDrawer(id) { closeRun(); selected = id; renderBoard(); renderDrawer(id); $("drawer").classList.add("open"); }
+function closeDrawer() { selected = null; $("drawer").classList.remove("open"); renderBoard(); }
+
+function quoteBlock(q) {
+  if (!q) return "";
+  return `<div class="quote">
+    <div><span>Rows</span><b>${q.rows.toLocaleString("en-IN")}</b></div>
+    <div><span>List</span><b>${money(q.list_price, q.currency)}</b></div>
+    <div><span>Discount</span><b>${q.discount_pct}%</b></div>
+    <div><span>Price</span><b>${money(q.price, q.currency)}</b></div>
+    <div class="note">${esc(q.note)} · max ${health.pricing?.max_discount_pct}% off, set in .env</div></div>`;
+}
+
+function renderDrawer(id) {
+  const lead = leads.find((l) => l.id === id); if (!lead) return;
+  const d = deals[id];
+  const gate = d?.pending_gate;
+  const live = health.send_mode === "live";
+  let html = `<button class="close" id="x">Close</button>
+    <h3>${esc(lead.name)}</h3>
+    <div class="muted">${esc(lead.location || lead.market || "Location unknown")} · ${esc(lead.currency)} pricing · intent <b>${lead.intent_score}</b>/100
+      ${d ? ` · <span class="stage">${esc(d.stage.replaceAll("_", " "))}</span>` : ""}
+      ${d?.sent_to ? ` · ${esc(d.sent_to)}` : ""}</div>`;
+
+  // --- the current action comes first ---
+  if (!d) {
+    html += `<h4>Start the deal</h4>
+      <input type="text" id="email" placeholder="Lead's email${live ? " (required in live mode)" : " (optional in sandbox)"}" value="${esc(lead.email || "")}">
+      <label class="check"><input type="checkbox" id="auto-pitch"> Autopilot: send the pitch without asking me</label>
+      <label class="check"><input type="checkbox" id="auto-reply"> Autopilot: send replies and follow-ups without asking me</label>
+      <button class="primary" id="start">Qualify, build sample &amp; draft pitch</button>`;
+  } else if (gate?.gate === "pitch") {
+    html += `<h4>Pitch</h4><div class="gate"><div class="label">Waiting for your decision</div>
+      ${gate.send_error ? `<div class="err">Last send failed: ${esc(gate.send_error)}</div>` : ""}
+      <p class="muted">The agent paused here. Edit anything, then send — or reject.</p>
+      <input type="text" id="subj" value="${esc(d.pitch.subject)}">
+      <textarea id="body" style="margin-top:8px">${esc(d.pitch.body)}</textarea>
+      <input type="text" id="note" placeholder="Note for the audit trail (optional)" style="margin-top:8px">
+      <div class="actions"><button class="primary" id="approve">Approve &amp; send</button>
+      <button class="danger" id="reject">Reject</button></div></div>`;
+  } else if (gate?.gate === "reply") {
+    const follow = d.draft?.kind === "followup";
+    html += `<h4>${follow ? "Follow-up" : "Reply"}</h4><div class="gate"><div class="label">Waiting for your decision</div>
+      ${gate.send_error ? `<div class="err">Last send failed: ${esc(gate.send_error)}</div>` : ""}
+      ${follow ? `<p class="muted">No reply yet — this is follow-up ${(d.followups || 0) + 1}.</p>` :
+        `<p class="muted">Lead's message read as <b>${esc(d.read?.intent?.replace("_", " "))}</b>. Prices come from your pricing rules, not the AI.</p>${quoteBlock(d.quote)}`}
+      <textarea id="body" style="margin-top:8px">${esc(d.draft.body)}</textarea>
+      <input type="text" id="note" placeholder="Note for the audit trail (optional)" style="margin-top:8px">
+      <div class="actions"><button class="primary" id="approve">Approve &amp; send</button>
+      <button class="danger" id="reject">Discard draft</button></div></div>`;
+  } else if (gate?.gate === "lead") {
+    html += `<h4>Waiting on ${esc(lead.name)}</h4><div class="waiting">
+      <div class="muted">Follow-ups sent: ${d.followups || 0}. The next one is drafted automatically if they stay quiet.</div>
+      ${health.reads_inbox ? `<p class="muted">Replies arrive from your inbox every minute.</p>` : live ? `
+        <p><b>Got a reply?</b> Paste it from your inbox (just their new message, not the quoted thread).</p>
+        <textarea id="sim" class="short" placeholder="Paste the lead's reply…"></textarea>` : `
+        <p><b>Sandbox:</b> play the lead and reply as them.</p>
+        <div class="presets">${PRESETS.map((t, i) => `<button data-preset="${i}">${esc(t)}</button>`).join("")}</div>
+        <textarea id="sim" class="short" placeholder="Type the lead's reply…"></textarea>`}
+      <div class="actions">${health.reads_inbox ? "" : `<button class="primary" id="simulate">${live ? "Record reply" : "Send as the lead"}</button>`}
+        <button id="nudge">Follow up now</button></div></div>`;
+  }
+
+  if (d?.quote && gate?.gate !== "reply") html += `<h4>Current quote</h4>${quoteBlock(d.quote)}`;
+
+  if (d?.thread?.length) {
+    html += `<h4>Conversation</h4>` + d.thread.map((m) => `<div class="bubble ${m.dir}">
+      <div class="meta">${m.dir === "out" ? "You" : esc(lead.name)} · ${esc((m.at || "").slice(5, 16).replace("T", " "))} UTC</div>${esc(m.body)}</div>`).join("");
+  }
+
+  if (d?.assessment) html += `<h4>Agent's read</h4><p>${esc(d.assessment.need_summary)}</p>
+    <p class="muted">Fit ${d.assessment.fit_score}/100 · Angle: ${esc(d.assessment.angle)}</p>`;
+  if (d?.sample?.length) html += `<h4>Free sample (${d.sample.length} rows) · <a href="/api/deals/${encodeURIComponent(id)}/sample.csv" target="_blank">CSV</a></h4>
+    <div class="table-wrap"><table><tr><th>Name</th><th>Rating</th><th>Reviews</th><th>Phone</th><th>Address</th></tr>
+    ${d.sample.map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.rating)}</td><td>${esc(r.reviews)}</td><td>${esc(r.phone)}</td><td>${esc(r.address)}</td></tr>`).join("")}
+    </table></div>`;
+
+  html += `<h4>Why this lead</h4><ul class="evidence">${lead.evidence.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>
+    <h4>Signals</h4>${lead.signals.map((s) => `<div class="signal">
+      <div><span class="chip">${esc(s.source)}</span> <b>${esc(s.title)}</b> <span class="muted">${esc(s.posted || "")}</span></div>
+      <div class="muted">${esc(s.snippet)}</div>
+      ${s.url ? `<a href="${safeUrl(s.url)}" target="_blank" rel="noopener">source ↗</a>` : ""}</div>`).join("")}`;
+
+  if (d?.audit?.length) html += `<h4>Audit trail</h4><ul class="timeline">${d.audit.map((a) =>
+    `<li class="${esc(a.actor)}"><div class="who">${esc(a.actor)} · ${esc(a.at.slice(11, 19))} UTC</div>${esc(a.note)}</li>`).join("")}</ul>`;
+
+  $("drawer").innerHTML = html;
+  drawerDirty = false;
+  wire(id, d);
+}
+
+function wire(id, d) {
+  const enc = encodeURIComponent(id);
+  $("x").onclick = closeDrawer;
+  if ($("start")) $("start").onclick = (e) => {
+    const autopilot = [$("auto-pitch").checked && "pitch", $("auto-reply").checked && "reply"].filter(Boolean);
+    const email = $("email").value.trim() || null;
+    run(e.target, "Agent is qualifying and building the sample…", () => post(`/api/leads/${enc}/deal`, { autopilot, email }));
+  };
+  if ($("approve")) $("approve").onclick = (e) => {
+    const isPitch = d.pending_gate.gate === "pitch";
+    const original = isPitch ? d.pitch : d.draft;
+    const draft = isPitch ? { subject: $("subj").value, body: $("body").value } : { body: $("body").value };
+    const edited = draft.body !== original.body || (isPitch && draft.subject !== original.subject);
+    const decision = edited ? { action: "edit", draft } : { action: "approve" };
+    decision.note = $("note").value || null;
+    run(e.target, "Sending…", () => post(`/api/deals/${enc}/decision`, decision),
+      health.send_mode === "live" ? "Sent" : "Sent — check the Mailpit inbox");
+  };
+  if ($("reject")) $("reject").onclick = (e) => run(e.target, "…", () =>
+    post(`/api/deals/${enc}/decision`, { action: "reject", note: $("note").value || null }));
+  document.querySelectorAll("[data-preset]").forEach((b) => (b.onclick = () => { $("sim").value = PRESETS[b.dataset.preset]; $("sim").focus(); }));
+  if ($("simulate")) $("simulate").onclick = (e) => {
+    const text = $("sim").value.trim(); if (!text) return toast("Type or pick a reply first");
+    run(e.target, "Agent is reading the reply…", () => post(`/api/deals/${enc}/simulate-reply`, { text }));
+  };
+  if ($("nudge")) $("nudge").onclick = (e) => run(e.target, "Drafting follow-up…", () => post(`/api/deals/${enc}/nudge`));
+}
+
+// ---------------------------------------------------------------- Insights
+let view = "board";
+const SERIES = ["var(--s1)", "var(--s2)", "var(--s3)"];
+
+document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => {
+  view = b.dataset.view;
+  document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
+  $("board").hidden = view !== "board";
+  $("insights").hidden = view !== "insights";
+  if (view === "insights") loadInsights();
+}));
+
+async function loadInsights() {
+  try { renderInsights(await api("/api/stats")); } catch (e) { toast(e.message); }
+}
+
+function niceMax(max) {
+  if (max <= 0) return 1;
+  const p = 10 ** Math.floor(Math.log10(max)), m = max / p;
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
+}
+
+function table(headers, rows) {
+  return `<details class="tbl"><summary>Show as table</summary><div class="table-wrap"><table>
+    <tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>
+    ${rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table></div></details>`;
+}
+
+function kpi(label, value, hint) {
+  return `<div class="kpi"><div class="l">${esc(label)}</div><div class="v">${esc(value)}</div>${hint ? `<div class="h">${esc(hint)}</div>` : ""}</div>`;
+}
+
+// Single-series horizontal bars (HTML so text stays crisp at any width).
+function hbars(rows, tipFn, valFn) {
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  return `<div class="hbars">${rows.map((r) => {
+    const pct = (r.value / max) * 78; // leave room for the value label at the tip
+    return `<span class="lab">${esc(r.label)}</span><div class="track" data-tip="${esc(tipFn(r))}">
+      <div class="bar" style="width:${pct}%"></div><span class="val" style="left:calc(${pct}% + 6px)">${esc(valFn(r))}</span></div>`;
+  }).join("")}</div>`;
+}
+
+function funnelChart(funnel) {
+  const rows = funnel.map((f, i) => ({ label: f.stage, value: f.count,
+    conv: i === 0 || !funnel[i - 1].count ? null : Math.round((100 * f.count) / funnel[i - 1].count) }));
+  return hbars(rows,
+    (r) => `${r.label}: ${r.value}${r.conv === null ? "" : ` · ${r.conv}% of previous stage`}`,
+    (r) => (r.conv === null ? `${r.value}` : `${r.value} · ${r.conv}%`))
+    + table(["Stage", "Count", "Conversion from previous"], rows.map((r) => [r.label, r.value, r.conv === null ? "—" : r.conv + "%"]));
+}
+
+function histogram(bins, W = 420) {
+  const H = 170, L = 28, B = 22, T = 8;
+  const max = niceMax(Math.max(...bins.map((b) => b.count)));
+  const slot = (W - L) / bins.length, bw = Math.min(24, slot * 0.6);
+  const y = (v) => T + (H - T - B) * (1 - v / max);
+  const ticks = [0, max / 2, max].filter((t) => Number.isInteger(t));
+  let g = ticks.map((t) => `<line class="gridline" x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}"/>
+    <text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${t}</text>`).join("");
+  bins.forEach((b, i) => {
+    const x = L + i * slot + (slot - bw) / 2, top = y(b.count), h = H - B - top;
+    const r = Math.min(4, h);
+    if (b.count > 0) g += `<path d="M${x},${H - B} V${top + r} Q${x},${top} ${x + r},${top} H${x + bw - r} Q${x + bw},${top} ${x + bw},${top + r} V${H - B} Z" fill="var(--s1)"/>`;
+    g += `<rect x="${L + i * slot}" y="${T}" width="${slot}" height="${H - T - B}" fill="transparent" data-tip="Intent ${esc(b.bin)}: ${b.count} lead${b.count === 1 ? "" : "s"}"/>`;
+    g += `<text x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${esc(b.bin)}</text>`;
+    if (b.count > 0) g += `<text class="lbl" x="${x + bw / 2}" y="${top - 5}" text-anchor="middle">${b.count}</text>`;
+  });
+  return `<svg class="chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Leads by intent score">${g}</svg>`;
+}
+
+function negotiationChart(negs, W = 520) {
+  // y = price as % of the deal's opening quote, so INR and USD deals share one axis.
+  const H = 220, L = 44, R = Math.min(130, W * 0.26), B = 24, T = 10;
+  const rounds = Math.max(2, ...negs.map((n) => n.points.length));
+  const x = (i) => L + ((W - L - R) * (i - 1)) / (rounds - 1);
+  const y = (v) => T + (H - T - B) * (1 - v / 100);
+  let g = [0, 50, 100].map((t) => `<line class="gridline" x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}"/>
+    <text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${t}%</text>`).join("");
+  for (let i = 1; i <= rounds; i++) g += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${i}</text>`;
+  g += `<text x="${(L + W - R) / 2}" y="${H + 12}" text-anchor="middle">quote round</text>`;
+  const ends = [];
+  negs.forEach((n, si) => {
+    const c = SERIES[si];
+    const pts = n.points.map((p) => [x(p.round), y(p.pct), p]);
+    g += `<polyline points="${pts.map(([a, b]) => `${a},${b}`).join(" ")}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    pts.forEach(([a, b, p]) => {
+      g += `<circle cx="${a}" cy="${b}" r="4" fill="${c}" stroke="var(--panel)" stroke-width="2"/>`;
+      g += `<circle cx="${a}" cy="${b}" r="11" fill="transparent" data-tip="${esc(n.deal)} · round ${p.round}: ${money(p.price, n.currency)} (${p.pct}% of opening) for ${p.rows.toLocaleString()} rows · lead: ${esc((p.intent || "").replace("_", " "))}"/>`;
+    });
+    const [ea, eb, ep] = pts[pts.length - 1];
+    ends.push({ y: eb, x: ea, text: money(ep.price, n.currency) });
+  });
+  // End labels only when they don't collide; otherwise the legend + tooltip carry identity.
+  ends.sort((a, b) => a.y - b.y);
+  if (ends.every((e, i) => i === 0 || e.y - ends[i - 1].y >= 14)) ends.forEach((e) => (g += `<text class="lbl" x="${e.x + 8}" y="${e.y + 4}">${esc(e.text)}</text>`));
+  const legend = `<div class="legend">${negs.map((n, i) => `<span><i style="background:${SERIES[i]}"></i>${esc(n.deal)} · ${esc(n.currency)} · <b>${esc(n.stage)}</b></span>`).join("")}</div>`;
+  return `<svg class="chart" width="${W}" height="${H + 16}" viewBox="0 0 ${W} ${H + 16}" role="img" aria-label="Quoted price per round, as a percentage of the opening quote">${g}</svg>${legend}`;
+}
+
+function actorsChart(actors) {
+  const total = actors.reduce((a, b) => a + b.count, 0);
+  if (!total) return `<div class="nodata">No activity yet.</div>`;
+  const names = { agent: "Agent", human: "You", lead: "Leads" };
+  return `<div class="stack">${actors.filter((a) => a.count).map((a) => `<div style="flex:${a.count};background:${SERIES[["agent", "human", "lead"].indexOf(a.actor)]}"
+      data-tip="${names[a.actor]}: ${a.count} actions (${Math.round((100 * a.count) / total)}%)"></div>`).join("")}</div>
+    <div class="legend">${actors.map((a, i) => `<span><i style="background:${SERIES[i]}"></i>${names[a.actor]} <b>${a.count}</b></span>`).join("")}</div>`
+    + table(["Who", "Actions", "Share"], actors.map((a) => [names[a.actor], a.count, total ? Math.round((100 * a.count) / total) + "%" : "—"]));
+}
+
+function flowDiagram(f) {
+  const nodes = [
+    { n: f.discovered, t: "Discovered", w: "agent", tip: "Leads found and scored, deal not started" },
+    { n: f.pitch_approval, t: "Pitch approval", w: "you", tip: "Pitches drafted with a free sample, waiting for you" },
+    { n: f.waiting_on_lead, t: "Waiting on lead", w: "lead", tip: "Pitched; follow-ups go out automatically if they stay quiet" },
+    { n: f.reply_approval, t: "Reply approval", w: "you", tip: "Lead replied; the agent priced it by your rules and drafted an answer" },
+    { n: f.won, t: "Won", w: "closed", tip: "Accepted a quote" },
+    { n: f.closed, t: "Closed out", w: "closed", tip: "Lost, rejected, disqualified or opted out" },
+  ];
+  const arrow = `<div class="arrow" aria-hidden="true"><svg width="16" height="12" viewBox="0 0 16 12"><path d="M0 6h13M9 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></div>`;
+  return `<div class="flow">${nodes.map((x, i) => (i ? arrow : "") + `<div class="node ${x.w === "you" ? "you" : ""} ${x.w === "you" && x.n ? "hot" : ""}" data-tip="${esc(x.tip)}">
+      <div class="n">${x.n}</div><div class="t">${esc(x.t)}</div><div class="w">${x.w === "you" ? "needs you" : x.w}</div></div>`).join("")}</div>
+    <div class="loopnote">↻ Waiting on lead ⇄ Reply approval repeats each round until the lead accepts, declines, or stays quiet past the follow-up limit.</div>`;
+}
+
+let lastStats = null;
+function drawSlots() {
+  const s = lastStats; if (!s) return;
+  const neg = $("slot-neg"), int = $("slot-int");
+  if (neg) neg.innerHTML = negotiationChart(s.negotiations, Math.max(280, neg.clientWidth));
+  if (int) int.innerHTML = histogram(s.intent_bins, Math.max(240, int.clientWidth));
+}
+let resizeTimer;
+addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(drawSlots, 120); });
+
+function renderInsights(s) {
+  lastStats = s;
+  const k = s.kpis;
+  const sources = s.sources.map((x) => ({ label: x.source, value: x.count }));
+  $("insights").innerHTML = `
+    <div class="span-12 kpis">
+      ${kpi("Leads found", k.leads, "from live search")}
+      ${kpi("Pitched", k.pitched, "with a free sample")}
+      ${kpi("Reply rate", k.reply_rate === null ? "—" : k.reply_rate + "%", "of pitched leads")}
+      ${kpi("Deals won", k.won)}
+      ${kpi("Revenue won", moneyTotals(k.revenue_won), "accepted quotes, per currency")}
+      ${kpi("Open pipeline", moneyTotals(k.pipeline_value), "latest quote on open deals")}
+      ${kpi("Handled by agent", k.automation_pct === null ? "—" : k.automation_pct + "%", "of agent + your actions")}
+    </div>
+    <div class="panel span-12"><h3>Agent flow — live</h3><p class="sub">Where every deal is right now. Highlighted steps are waiting for you.</p>${flowDiagram(s.flow)}</div>
+    <div class="panel span-7"><h3>Sales funnel</h3><p class="sub">Leads at each stage, with conversion from the stage before.</p>${funnelChart(s.funnel)}</div>
+    <div class="panel span-5"><h3>Where leads come from</h3><p class="sub">Leads by the search engine that found their strongest signal.</p>
+      ${sources.length ? hbars(sources, (r) => `${r.label}: ${r.value} leads`, (r) => `${r.value}`) + table(["Source", "Leads"], sources.map((r) => [r.label, r.value])) : `<div class="nodata">Click Find leads first.</div>`}
+      ${s.markets?.length ? `<h3 style="margin-top:16px">By market</h3><p class="sub">Which country each lead was found in.</p>`
+        + hbars(s.markets.map((m) => ({ label: m.market, value: m.count })), (r) => `${r.label}: ${r.value} leads`, (r) => `${r.value}`)
+        + table(["Market", "Leads"], s.markets.map((m) => [m.market, m.count])) : ""}</div>
+    <div class="panel span-7"><h3>Negotiations</h3><p class="sub">Each round's quote as a % of the opening quote (so ₹ and $ deals compare). Prices come from your pricing rules and never drop below the floor.</p>
+      ${s.negotiations.length ? `<div class="slot" id="slot-neg"></div>` + table(["Deal", "Round", "Rows", "Price", "% of opening", "Lead said"], s.negotiations.flatMap((n) => n.points.map((p) => [n.deal, p.round, p.rows, money(p.price, n.currency), p.pct + "%", (p.intent || "").replace("_", " ")])))
+        : `<div class="nodata">No negotiations yet. Once a lead replies, every quote round shows up here.</div>`}</div>
+    <div class="panel span-5"><h3>Intent scores</h3><p class="sub">How strongly each discovered lead signals a need for data.</p>
+      <div class="slot" id="slot-int"></div>${table(["Intent score", "Leads"], s.intent_bins.map((b) => [b.bin, b.count]))}</div>
+    <div class="panel span-5"><h3>Who did the work</h3><p class="sub">Every step in every deal's audit trail.</p>${actorsChart(s.actors)}</div>
+    <div class="panel span-7"><h3>Recent activity</h3><p class="sub">Latest steps across all deals.</p>
+      ${s.activity.length ? `<ul class="feed">${s.activity.map((a) => `<li><span class="stage who">${esc(a.actor)}</span><b>${esc(a.deal)}</b> — ${esc(a.note)} <span class="muted">· ${esc(a.at.slice(5, 16).replace("T", " "))} UTC</span></li>`).join("")}</ul>` : `<div class="nodata">Nothing yet.</div>`}</div>`;
+  drawSlots();
+}
+
+// One tooltip for every [data-tip] mark; hit targets are larger than the marks.
+document.addEventListener("mousemove", (e) => {
+  const t = $("tip"), el = e.target.closest?.("[data-tip]");
+  if (!el || !$("drawer").contains(el) && !$("insights").contains(el)) { t.style.display = "none"; return; }
+  t.textContent = el.getAttribute("data-tip"); t.style.display = "block";
+  const x = Math.min(e.clientX + 14, innerWidth - t.offsetWidth - 8), y = Math.min(e.clientY + 14, innerHeight - t.offsetHeight - 8);
+  t.style.left = x + "px"; t.style.top = y + "px";
+});
+
+async function run(btn, busyText, fn, doneText) {
+  const label = btn.textContent; btn.disabled = true; btn.textContent = busyText;
+  try { await fn(); await refresh(); if (doneText) toast(doneText); }
+  catch (err) { toast(err.message); btn.disabled = false; btn.textContent = label; }
+}
+
+// ---------------------------------------------------------------- live agent run
+const SOURCE_LABEL = { live: ["live", "live search · 1 credit"], cache: ["", "cached · free"], demo: ["", "demo data"] };
+let runState = null;
+
+function openRun() {
+  closeDrawer();
+  $("run").classList.add("open");
+}
+function closeRun() { $("run").classList.remove("open"); }
+
+function startDiscovery() {
+  if (runState && !runState.finished) return openRun();
+  const btn = $("discover"); btn.disabled = true; btn.textContent = "Agent working…";
+  runState = { steps: new Map(), order: [], queue: [], started: performance.now(), finished: false, result: null, error: null, draining: false };
+  openRun(); renderRun();
+  const timer = setInterval(() => { const el = $("elapsed"); if (el && !runState.finished) el.textContent = ((performance.now() - runState.started) / 1000).toFixed(1) + "s"; }, 100);
+  const es = new EventSource("/api/discover/stream");
+  let gotEnd = false;
+  es.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    if (ev.type !== "step") { gotEnd = true; es.close(); } // stop the browser from reconnecting
+    runState.queue.push(ev); drain();
+  };
+  es.onerror = () => { es.close(); if (!gotEnd) { gotEnd = true; runState.queue.push({ type: "error", message: "Lost connection to the server" }); drain(); } };
+  runState.cleanup = () => { es.close(); clearInterval(timer); btn.disabled = false; btn.textContent = "Find leads"; };
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const fmtMs = (ms) => {
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 59950) return `${(ms / 1000).toFixed(1)}s`;
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
+};
+// Show events at a readable pace: cached runs finish in milliseconds and would just flash by.
+async function drain() {
+  if (runState.draining) return;
+  runState.draining = true;
+  while (runState.queue.length) {
+    const ev = runState.queue.shift();
+    if (ev.type === "step") {
+      if (!runState.steps.has(ev.id)) runState.order.push(ev.id);
+      runState.steps.set(ev.id, { ...(runState.steps.get(ev.id) || {}), ...ev });
+      renderRun();
+      await sleep(ev.status === "running" ? 420 : 160);
+    } else {
+      if (ev.type === "done") runState.result = ev; else runState.error = ev.message;
+      runState.finished = true; runState.wall = performance.now() - runState.started; runState.cleanup(); renderRun();
+      if (ev.type === "done") await refresh();
+    }
+  }
+  runState.draining = false;
+}
+
+function renderRun() {
+  const r = runState; if (!r) return;
+  const elapsed = (((r.finished ? r.wall : performance.now() - r.started) || 0) / 1000).toFixed(1) + "s";
+  const title = r.error ? "Run stopped" : r.finished ? `Found ${r.result.count} lead${r.result.count === 1 ? "" : "s"}` : "Agent is finding leads";
+  let html = `<div class="runhead"><h3>${esc(title)}</h3><span class="elapsed" id="elapsed">${elapsed}</span><button id="run-x">Close</button></div>
+    <div class="muted">${r.finished ? "Every search and decision the agent made is listed below." : `<span class="thinking">Searching live sources for people who need data</span>`}</div>
+    <ol class="steps">`;
+  for (const id of r.order) {
+    const st = r.steps.get(id);
+    const [srcCls, srcText] = SOURCE_LABEL[st.source] || ["", ""];
+    const keepList = id === "vet" || id === "score";
+    const label = st.status === "done" ? st.label.replace(/^Searching /, "Searched ") : st.label;
+    const detailsLabel = { plan: "Show the plan", merge: "Show details", score: "Every lead and why", vet: "Every company and why" }[id]
+      || `${st.items?.length} result${st.items?.length === 1 ? "" : "s"}`;
+    html += `<li class="step ${st.status}">
+      <div class="ico" aria-hidden="true">${st.status === "done" ? `<svg width="11" height="11" viewBox="0 0 12 12"><path d="M2 6.5l2.5 2.5L10 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ""}</div>
+      <div><div class="t1"><b>${esc(label)}</b>${st.engine ? `<span class="chip mono">${esc(st.engine)}</span>` : ""}${srcText && st.status === "done" ? `<span class="src ${srcCls}">${esc(srcText)}</span>` : ""}${st.ms !== undefined ? `<span class="ms">${fmtMs(st.ms)}</span>` : ""}</div>
+        ${st.query ? `<div class="q mono">${esc(st.query)}</div>` : ""}
+        ${st.status === "running" ? `<div class="sum thinking">${st.engine ? "Waiting for results" : "Working"}</div>` : st.summary ? `<div class="sum">${esc(st.summary)}</div>` : ""}
+        ${st.items?.length ? `<details ${keepList ? "open" : ""}><summary>${esc(detailsLabel)}</summary>
+          <ul>${st.items.map((i) => `<li class="${i.startsWith("✓") ? "keep" : ""}">${esc(i)}</li>`).join("")}</ul></details>` : ""}
+      </div></li>`;
+  }
+  html += `</ol>`;
+  if (r.error) html += `<div class="runfoot"><div class="err">${esc(r.error)}</div></div>`;
+  if (r.result) {
+    const x = r.result;
+    const took = fmtMs(x.ms);
+    html += `<div class="runfoot"><div class="big">${x.count} lead${x.count === 1 ? "" : "s"} ready</div>
+      <div class="muted">Searches and scoring took ${took} · ${x.credits_spent} SerpApi credit${x.credits_spent === 1 ? "" : "s"} spent${x.serp_mode === "DEMO" ? " · demo data" : ""}${x.top.length ? ` · strongest: ${x.top.map((t) => `${esc(t.name)} (${t.score})`).join(", ")}` : ""}</div>
+      <div class="actions"><button class="primary" id="run-view">View leads</button><button id="run-again">Run again</button></div></div>`;
+  }
+  $("run").innerHTML = html;
+  $("run-x").onclick = closeRun;
+  if ($("run-view")) $("run-view").onclick = () => {
+    closeRun();
+    if (view !== "board") document.querySelector('.tabs button[data-view="board"]').click();
+    document.querySelectorAll("#c-found .card").forEach((c) => { c.classList.remove("fresh"); void c.offsetWidth; c.classList.add("fresh"); });
+  };
+  if ($("run-again")) $("run-again").onclick = startDiscovery;
+}
+
+$("discover").onclick = startDiscovery;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeDrawer(); closeRun(); } });
+refresh().catch((e) => toast(e.message));
+$("drawer").addEventListener("input", () => (drawerDirty = true));
+setInterval(() => { if (!document.hidden) refresh(true).catch(() => {}); }, 15000);
+</script>
+</body>
+</html>

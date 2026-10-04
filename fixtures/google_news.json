@@ -1,0 +1,24 @@
+{
+ "news_results": [
+  {
+   "title": "Bengaluru D2C brand Brewkart Cafe Supplies raises ₹12 crore seed round to expand into Tier-2 cities",
+   "link": "https://example.com/news/brewkart-seed",
+   "source": {
+    "name": "Demo Startup Daily"
+   },
+   "date": "1 day ago",
+   "snippet": "The company plans to onboard 5,000 cafes across South India.",
+   "company": "Brewkart Cafe Supplies"
+  },
+  {
+   "title": "SalonSuite raises pre-seed to digitise salons in Chennai",
+   "link": "https://example.com/news/salonsuite",
+   "source": {
+    "name": "Demo Startup Daily"
+   },
+   "date": "6 days ago",
+   "snippet": "SalonSuite will use the funds for market expansion.",
+   "company": "SalonSuite"
+  }
+ ]
+}

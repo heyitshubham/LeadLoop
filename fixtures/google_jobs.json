@@ -1,0 +1,44 @@
+{
+ "jobs_results": [
+  {
+   "title": "Market Research Analyst – Real Estate",
+   "company_name": "Nestora Realty",
+   "location": "Pune, Maharashtra, India",
+   "description": "We need a market research analyst to build a database of competitor real estate agencies and projects across Pune, track listings and reviews, and support our lead generation team.",
+   "detected_extensions": {
+    "posted_at": "2 days ago"
+   },
+   "share_link": "https://www.google.com/search?q=nestora+realty+jobs"
+  },
+  {
+   "title": "Lead Generation Executive (B2B)",
+   "company_name": "Brewkart Cafe Supplies",
+   "location": "Bengaluru, Karnataka, India",
+   "description": "Build prospect lists of cafes and restaurants in Bengaluru, qualify them and hand over to sales. Experience with lead generation tools and web scraping preferred.",
+   "detected_extensions": {
+    "posted_at": "5 hours ago"
+   },
+   "share_link": "https://www.google.com/search?q=brewkart+jobs"
+  },
+  {
+   "title": "Data Entry Operator – Clinic Directory",
+   "company_name": "MediLink Health",
+   "location": "Hyderabad, Telangana, India",
+   "description": "Compile and verify a directory of dental and skin clinics in Hyderabad with phone numbers, ratings and timings. Data entry from public sources.",
+   "detected_extensions": {
+    "posted_at": "4 days ago"
+   },
+   "share_link": "https://www.google.com/search?q=medilink+health+jobs"
+  },
+  {
+   "title": "Senior Data Engineer",
+   "company_name": "Quantive Labs",
+   "location": "Remote, India",
+   "description": "Own our Spark pipelines and warehouse.",
+   "detected_extensions": {
+    "posted_at": "30+ days ago"
+   },
+   "share_link": "https://www.google.com/search?q=quantive+jobs"
+  }
+ ]
+}
