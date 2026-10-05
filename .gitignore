@@ -11,3 +11,6 @@ demo/work/
 demo/*.mp4
 demo/*.log
 .playwright-mcp/
+
+# demo folder (local only)
+demo/
