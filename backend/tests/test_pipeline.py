@@ -38,8 +38,8 @@ client = TestClient(app)
 
 
 def _lead_id(name: str) -> str:
-    leads = client.post("/api/discover").json()
-    return next(l["id"] for l in leads if l["name"] == name)
+    client.post("/api/discover")  # leads already in a deal are not rediscovered, but stay stored
+    return next(l.id for l in store.list_leads() if l.name == name)
 
 
 def _pitched(name: str, email: str | None = None) -> str:
@@ -250,14 +250,17 @@ def test_discovery_streams_every_step():
     steps = [e for e in events if e["type"] == "step"]
     ids = list(dict.fromkeys(e["id"] for e in steps))
     assert ids == ["plan", "jobs-in-0", "jobs-in-1", "jobs-in-2", "jobs-us-0", "jobs-us-1", "jobs-us-2",
-                   "reddit", "news-in", "news-us", "merge", "score", "vet"]
+                   "reddit", "news-in", "news-us", "merge", "history", "score", "vet"]
     # every search goes running -> done, and says where the data came from
     for sid in ("jobs-in-0", "jobs-us-0", "reddit", "news-in"):
         statuses = [e["status"] for e in steps if e["id"] == sid]
         assert statuses == ["running", "done"]
         done = next(e for e in steps if e["id"] == sid and e["status"] == "done")
         assert done["source"] in ("demo", "cache", "live") and done["items"]
-    assert events[-1]["type"] == "done" and events[-1]["count"] == 6 and events[-1]["credits_spent"] == 0
+    worked = next(e for e in steps if e["id"] == "history" and e["status"] == "done")["items"]
+    assert worked  # earlier tests started deals; those leads are skipped, not rediscovered
+    assert events[-1]["type"] == "done" and events[-1]["count"] + len(worked) == 6
+    assert events[-1]["credits_spent"] == 0
     score = next(e for e in steps if e["id"] == "score" and e["status"] == "done")
     assert any(i.startswith("✗ Quantive Labs") for i in score["items"])
 
@@ -300,9 +303,10 @@ def test_usd_pricing_and_currency_per_lead():
     assert quote(None, 0, "USD").list_price == 50  # 500 default rows x $0.10, above the $49 minimum
     assert money(1234567, "INR") == "₹12,34,567" and money(1500, "USD") == "$1,500"
 
-    leads = {l["name"]: l for l in client.post("/api/discover").json()}
-    assert leads["Nestora Realty"]["market"] == "India" and leads["Nestora Realty"]["currency"] == "INR"
-    assert leads["r/delhi poster"]["market"] is None and leads["r/delhi poster"]["currency"] == "USD"
+    client.post("/api/discover")
+    leads = {l.name: l for l in store.list_leads()}
+    assert leads["Nestora Realty"].market == "India" and leads["Nestora Realty"].currency == "INR"
+    assert leads["r/delhi poster"].market is None and leads["r/delhi poster"].currency == "USD"
 
 
 def test_buyer_check_drops_job_boards_and_competitors():
@@ -414,3 +418,55 @@ def test_reply_rates_feed_back_into_scoring():
     nudged = {l.name: l for l in discover(serp, learned=perf)}
     assert nudged["r/delhi poster"].intent_score == min(100, base["r/delhi poster"] + perf["reddit"]["adjust"])
     assert any(e.startswith("learned: reddit") for e in nudged["r/delhi poster"].evidence)
+
+
+def test_worked_leads_are_not_rediscovered():
+    from app.discovery.service import discover, worked_keys
+    from app.serp.client import serp
+
+    fresh = {l.name: l for l in discover(serp)}
+    deals = [  # one closed company deal under a name variant, one Reddit post already pitched
+        {"lead": {**fresh["Nestora Realty"].model_dump(), "name": "Nestora Realty Pvt. Ltd."}, "stage": "lost"},
+        {"lead": fresh["r/delhi poster"].model_dump(), "stage": "pitched"},
+    ]
+    again = {l.name for l in discover(serp, worked=worked_keys(deals))}
+    assert "Nestora Realty" not in again and "r/delhi poster" not in again
+    assert "r/mumbai poster" in again  # another poster, not worked
+    assert again == set(fresh) - {"Nestora Realty", "r/delhi poster"}
+
+
+def test_reddit_posts_from_one_subreddit_are_separate_leads():
+    from app.discovery.service import identity
+
+    a = Signal(source="reddit", title="Need gyms", url="https://reddit.com/r/delhi/comments/1/a/", company="r/delhi poster")
+    b = Signal(source="reddit", title="Need cafes", url="https://reddit.com/r/delhi/comments/2/b/", company="r/delhi poster")
+    assert identity(a) != identity(b)
+    assert identity(Signal(source="jobs", title="x", company="Hive Pvt Ltd")) == identity(
+        Signal(source="news", title="y", company="Hive"))
+
+
+def test_discovery_cache_expires(tmp_path):
+    import json as _json
+    import os as _os
+    import time as _time
+
+    from app.config import settings
+    from app.serp.client import SerpClient
+
+    class Live:
+        calls = 0
+
+        def search(self, params):
+            Live.calls += 1
+            return {"n": Live.calls}
+
+    s = SerpClient(settings.__class__(**{**settings.__dict__, "data_dir": tmp_path}))
+    s._client = Live()
+    assert s.fetch("google", max_age_hours=24, q="x") == ({"n": 1}, "live")
+    assert s.fetch("google", max_age_hours=24, q="x") == ({"n": 1}, "cache")
+    cached = next((tmp_path / "serp_cache").glob("google-*.json"))
+    old = _time.time() - 25 * 3600
+    _os.utime(cached, (old, old))
+    assert s.fetch("google", q="x") == ({"n": 1}, "cache")  # no max age: cached for good (fulfilment)
+    assert s.fetch("google", max_age_hours=24, q="x") == ({"n": 2}, "live")
+    assert _json.loads(cached.read_text()) == {"n": 2}

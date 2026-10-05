@@ -22,14 +22,35 @@ def company_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", LEGAL_SUFFIX.sub("", name.lower())).strip()
 
 
-def _lead_id(name: str) -> str:
+def _lead_id(name: str, salt: str = "") -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:32]
-    return f"{slug}-{hashlib.sha1(name.lower().encode()).hexdigest()[:6]}"
+    return f"{slug}-{hashlib.sha1((name.lower() + salt).encode()).hexdigest()[:6]}"
 
 
-def discover(serp: SerpClient, min_score: int = 40, emit: Emit = lambda e: None, learned: dict | None = None) -> list[Lead]:
-    """`learned` is learning.source_performance() over past deals: it nudges each source's scores."""
-    learned = learned or {}
+def identity(s: Signal) -> str:
+    """Who a signal is about. Companies by name; Reddit posters are anonymous, so each post is its own lead."""
+    if s.source == "reddit":
+        return s.url or s.title.lower()
+    return company_key(s.company or "")
+
+
+def worked_keys(deals: list[dict]) -> dict[str, str]:
+    """Identities of every lead that already has a deal (open or closed) -> its stage."""
+    out = {}
+    for d in deals:
+        lead = d.get("lead") or {}
+        keys = {identity(Signal(**s)) for s in lead.get("signals", [])}
+        if lead.get("source") != "reddit" and lead.get("name"):
+            keys.add(company_key(lead["name"]))
+        out.update(dict.fromkeys(filter(None, keys), d.get("stage") or "in progress"))
+    return out
+
+
+def discover(serp: SerpClient, min_score: int = 40, emit: Emit = lambda e: None, learned: dict | None = None,
+             worked: dict[str, str] | None = None) -> list[Lead]:
+    """`learned` is learning.source_performance() over past deals: it nudges each source's scores.
+    `worked` is worked_keys() over past deals: those leads are never rediscovered."""
+    learned, worked = learned or {}, worked or {}
     searches = src.plan()
     markets = ", ".join(m["name"] for m in settings.markets)
     emit({"type": "step", "id": "plan", "status": "done", "label": "Planning searches",
@@ -46,12 +67,21 @@ def discover(serp: SerpClient, min_score: int = 40, emit: Emit = lambda e: None,
         if key in seen:  # the same posting often matches several queries
             continue
         seen.add(key)
-        if s.company and company_key(s.company):
-            by_company.setdefault(company_key(s.company), []).append(s)
+        if s.company and (key := identity(s)):
+            by_company.setdefault(key, []).append(s)
     multi = [sigs[0].company for sigs in by_company.values() if len({x.source for x in sigs}) > 1]
     emit({"type": "step", "id": "merge", "status": "done",
           "summary": f"{len(found)} signals → {len(by_company)} companies ({len(found) - len(seen)} duplicates dropped)",
           "items": [f"{name}: confirmed by more than one source" for name in multi]})
+
+    emit({"type": "step", "id": "history", "status": "running", "label": "Skipping leads already worked"})
+    skipped = []
+    for key, sigs in list(by_company.items()):
+        if stage := next((worked[k] for k in {key, *map(identity, sigs)} if k in worked), None):
+            skipped.append(f"✗ {sigs[0].company} — already worked ({stage})")
+            del by_company[key]
+    emit({"type": "step", "id": "history", "status": "done",
+          "summary": f"{len(skipped)} already in your deals · {len(by_company)} new", "items": skipped})
 
     emit({"type": "step", "id": "score", "status": "running", "label": "Scoring buying intent"})
     leads, dropped = [], []
@@ -67,7 +97,7 @@ def discover(serp: SerpClient, min_score: int = 40, emit: Emit = lambda e: None,
         market = _market_of(sigs)
         leads.append(
             Lead(
-                id=_lead_id(name),
+                id=_lead_id(name, sigs[0].url or "") if sigs[0].source == "reddit" else _lead_id(name),
                 name=name,
                 source=sigs[0].source,
                 location=next((s.location for s in sigs if s.location), None),

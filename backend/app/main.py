@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from app import learning, stats, store
 from app.config import settings
-from app.discovery.service import discover
+from app.discovery.service import discover, worked_keys
 from app.pipeline import fulfil, inbox, mailer, runner
 from app.pipeline.sample import to_csv
 from app.serp.client import CreditBudgetExceeded, serp
@@ -97,7 +97,8 @@ def mail_check():
 @app.post("/api/discover")
 def run_discovery(min_score: int = 40):
     try:
-        leads = discover(serp, min_score=min_score, learned=learning.source_performance(_all_deals()))
+        past = _all_deals()
+        leads = discover(serp, min_score=min_score, learned=learning.source_performance(past), worked=worked_keys(past))
     except CreditBudgetExceeded as e:
         raise HTTPException(429, str(e))
     store.save_leads(leads)
@@ -113,8 +114,9 @@ def discover_stream(min_score: int = 40):
         t0 = time.perf_counter()
         used_before = serp.credits_used()
         try:
+            past = _all_deals()
             leads = discover(serp, min_score=min_score, emit=events.put,
-                             learned=learning.source_performance(_all_deals()))
+                             learned=learning.source_performance(past), worked=worked_keys(past))
             store.save_leads(leads)
             events.put({"type": "done", "count": len(leads), "ms": round((time.perf_counter() - t0) * 1000),
                         "credits_spent": serp.credits_used() - used_before, "serp_mode": serp.mode,

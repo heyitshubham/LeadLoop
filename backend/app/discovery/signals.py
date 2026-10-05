@@ -49,7 +49,7 @@ def _search(serp: SerpClient, emit: Emit, step_id: str, engine: str, q: str, mar
           "engine": engine, "query": q})
     params = {k: v for k, v in params.items() if v is not None}
     t0 = time.perf_counter()
-    result, source = serp.fetch(engine, q=q, **params)
+    result, source = serp.fetch(engine, max_age_hours=settings.discovery_refresh_hours, q=q, **params)
     return {"result": result, "source": source, "ms": round((time.perf_counter() - t0) * 1000)}
 
 

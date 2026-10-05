@@ -25,7 +25,7 @@ discover -> qualify -> build sample -> draft pitch -> [you approve] -> send
 
 | Stage | What happens | SerpApi engine |
 |---|---|---|
-| Discover | Companies hiring for research / lead-gen / data entry, Reddit posts asking for lists, freshly funded startups. Signals for the same company are merged. | `google_jobs`, `google`, `google_news` |
+| Discover | Companies hiring for research / lead-gen / data entry, Reddit posts asking for lists, freshly funded startups. Signals for the same company are merged. Anyone already in a deal (open or closed) is skipped, and discovery searches again once its cached results are older than `LEADLOOP_DISCOVERY_REFRESH_HOURS` (default 24). | `google_jobs`, `google`, `google_news` |
 | Score | Deterministic intent score; every point has a reason | — |
 | Qualify | The LLM (Groq, Gemini or Claude) reads the evidence and picks the dataset that would help most | — |
 | Sample | A real 10-row dataset for that lead, built *before* pitching | `google_maps` |

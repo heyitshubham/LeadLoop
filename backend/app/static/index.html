@@ -707,7 +707,7 @@ function renderRun() {
     const [srcCls, srcText] = SOURCE_LABEL[st.source] || ["", ""];
     const keepList = id === "vet" || id === "score";
     const label = st.status === "done" ? st.label.replace(/^Searching /, "Searched ") : st.label;
-    const detailsLabel = { plan: "Show the plan", merge: "Show details", score: "Every lead and why", vet: "Every company and why" }[id]
+    const detailsLabel = { plan: "Show the plan", merge: "Show details", history: "Leads already in your deals", score: "Every lead and why", vet: "Every company and why" }[id]
       || `${st.items?.length} result${st.items?.length === 1 ? "" : "s"}`;
     html += `<li class="step ${st.status}">
       <div class="ico" aria-hidden="true">${st.status === "done" ? `<svg width="11" height="11" viewBox="0 0 12 12"><path d="M2 6.5l2.5 2.5L10 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ""}</div>

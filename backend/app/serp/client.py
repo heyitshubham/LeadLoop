@@ -9,6 +9,7 @@
 import hashlib
 import json
 import threading
+import time
 from pathlib import Path
 
 import serpapi
@@ -41,12 +42,17 @@ class SerpClient:
     def search(self, engine: str, **params) -> dict:
         return self.fetch(engine, **params)[0]
 
-    def fetch(self, engine: str, **params) -> tuple[dict, str]:
-        """Like search(), plus where the result came from: "cache", "demo" or "live" (1 credit)."""
+    def fetch(self, engine: str, max_age_hours: float | None = None, **params) -> tuple[dict, str]:
+        """Like search(), plus where the result came from: "cache", "demo" or "live" (1 credit).
+
+        With max_age_hours, an older cached result is searched again live. Without a key there is
+        nothing to refresh from, so the stale copy is still served."""
         params = {"engine": engine, **params}
         key = hashlib.sha256(json.dumps(params, sort_keys=True).encode()).hexdigest()[:24]
         cached = self.cache_dir / f"{engine}-{key}.json"
-        if cached.exists():
+        if cached.exists() and (
+            max_age_hours is None or not self._client or time.time() - cached.stat().st_mtime < max_age_hours * 3600
+        ):
             return json.loads(cached.read_text()), "cache"
 
         if not self._client:

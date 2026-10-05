@@ -18,6 +18,7 @@ class Settings:
     groq_key: str | None
     force_demo: bool
     credit_budget: int
+    discovery_refresh_hours: float  # discovery re-searches after this; cached results older than it are stale
     data_dir: Path
     fixtures_dir: Path
     send_mode: str  # sandbox (Mailpit) | live (real SMTP, e.g. Zoho)
@@ -110,6 +111,8 @@ def load_settings() -> Settings:
         force_demo=os.getenv("LEADLOOP_DEMO", "0") == "1",
         # Free SerpApi plan is 250 searches/month; keep headroom for the demo recording.
         credit_budget=int(os.getenv("LEADLOOP_CREDIT_BUDGET", "200")),
+        # Discovery runs the same queries every time, so a never-expiring cache returns the same leads forever.
+        discovery_refresh_hours=float(os.getenv("LEADLOOP_DISCOVERY_REFRESH_HOURS", "24")),
         data_dir=data_dir,
         fixtures_dir=BACKEND_DIR / "fixtures",
         send_mode=os.getenv("LEADLOOP_SEND_MODE", "sandbox"),
