@@ -470,3 +470,113 @@ def test_discovery_cache_expires(tmp_path):
     assert s.fetch("google", q="x") == ({"n": 1}, "cache")  # no max age: cached for good (fulfilment)
     assert s.fetch("google", max_age_hours=24, q="x") == ({"n": 2}, "live")
     assert _json.loads(cached.read_text()) == {"n": 2}
+
+
+# --- lead research (the LLM picks its own searches) ------------------------------
+
+
+class _FakeSerp:
+    def __init__(self):
+        self.calls = []
+
+    def fetch(self, engine, **params):
+        self.calls.append((engine, params))
+        return {"organic_results": [{"title": "Nestora Realty — Pune homes", "link": "https://nestora.example",
+                                     "snippet": "Brokerage with 3 offices in Pune"}]}, "live"
+
+
+def _company_lead():
+    from app.discovery.service import discover
+    from app.serp.client import serp
+
+    return next(l for l in discover(serp) if l.name == "Nestora Realty")
+
+
+def test_research_runs_the_searches_the_llm_picks(monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from app import llm
+    from app.research import research
+
+    seen = []
+
+    def create(**kw):
+        seen.append(kw)
+        if len(seen) == 1:
+            call = NS(id="c1", function=NS(name="web_search", arguments='{"query": "Nestora Realty Pune"}'))
+            return NS(choices=[NS(message=NS(content=None, tool_calls=[call]))])
+        return NS(choices=[NS(message=NS(content="- Brokerage with 3 offices in Pune (web_search)", tool_calls=None))])
+
+    lead = _company_lead()  # before patching: discovery calls the LLM too
+    monkeypatch.setattr(llm, "_groq", NS(chat=NS(completions=NS(create=create))))
+    fake = _FakeSerp()
+    r = research(lead, fake)
+
+    assert fake.calls == [("google", {"q": "Nestora Realty Pune"})]
+    assert r["by"] == "Groq" and r["skipped"] is None
+    assert r["searches"] == [{"engine": "google", "query": "Nestora Realty Pune", "source": "live"}]
+    assert r["notes"] == ["Brokerage with 3 offices in Pune (web_search)"]
+    tool_msg = seen[1]["messages"][-1]
+    assert tool_msg["role"] == "tool" and "3 offices in Pune" in tool_msg["content"]
+    assert {t["function"]["name"] for t in seen[0]["tools"]} == {"web_search", "news_search", "maps_search"}
+
+
+def test_research_stops_at_the_search_cap(monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from app import llm
+    from app.config import settings
+    from app.research import research
+
+    choices = []
+
+    def create(**kw):
+        choices.append(kw.get("tool_choice", "no tools"))
+        if "tools" not in kw:
+            return NS(choices=[NS(message=NS(content="- nothing about this company", tool_calls=None))])
+        call = NS(id=f"c{len(choices)}", function=NS(name="news_search", arguments=f'{{"query": "q{len(choices)}"}}'))
+        return NS(choices=[NS(message=NS(content=None, tool_calls=[call]))])
+
+    lead = _company_lead()  # before patching: discovery calls the LLM too
+    monkeypatch.setattr(llm, "_groq", NS(chat=NS(completions=NS(create=create))))
+    fake = _FakeSerp()
+    r = research(lead, fake)
+    assert len(fake.calls) == settings.research_max_searches == 3
+    assert choices == ["auto"] * 3 + ["no tools"]
+    assert r["notes"] == ["nothing about this company"]
+
+
+def test_research_claude_loop(monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from app import llm
+    from app.research import research
+
+    sent = []
+
+    def create(**kw):
+        sent.append(kw)
+        if len(sent) == 1:
+            use = NS(type="tool_use", id="t1", name="maps_search", input={"query": "Nestora Realty", "location": "Pune"})
+            return NS(stop_reason="tool_use", content=[use])
+        return NS(stop_reason="end_turn", content=[NS(type="text", text="- Listed on Maps in Pune (maps_search)")])
+
+    lead = _company_lead()
+    monkeypatch.setattr(llm, "_groq", None)
+    monkeypatch.setattr(llm, "_claude", NS(beta=NS(messages=NS(create=create))))
+    fake = _FakeSerp()
+    r = research(lead, fake)
+    assert fake.calls[0][0] == "google_maps" and fake.calls[0][1]["location"] == "Pune"
+    assert r["by"] == "Claude" and r["notes"] == ["Listed on Maps in Pune (maps_search)"]
+    result = sent[1]["messages"][-1]["content"][0]
+    assert result["type"] == "tool_result" and result["tool_use_id"] == "t1"
+    assert sent[0]["tools"][0]["input_schema"]["required"] == ["query"]
+
+
+def test_research_skips_reddit_and_runs_without_an_llm():
+    from app.research import research
+
+    lead = _company_lead()
+    assert research(lead.model_copy(update={"source": "reddit"}), _FakeSerp())["skipped"].startswith("anonymous")
+    r = research(lead, _FakeSerp())  # DEMO: no Groq or Claude key
+    assert r["skipped"] == "no Groq or Claude key set" and r["notes"] == []

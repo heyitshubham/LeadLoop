@@ -9,7 +9,7 @@ SerpApi India Hackathon 2026 — track: AI Agents.
 ## Pipeline
 
 ```
-discover -> qualify -> build sample -> draft pitch -> [you approve] -> send
+discover -> research -> qualify -> build sample -> draft pitch -> [you approve] -> send
                                                                          |
           +-------------------- wait for the lead <----------------------+
           |  reply                         | silence (follow-up due)     ^
@@ -27,7 +27,8 @@ discover -> qualify -> build sample -> draft pitch -> [you approve] -> send
 |---|---|---|
 | Discover | Companies hiring for research / lead-gen / data entry, Reddit posts asking for lists, freshly funded startups. Signals for the same company are merged. Anyone already in a deal (open or closed) is skipped, and discovery searches again once its cached results are older than `LEADLOOP_DISCOVERY_REFRESH_HOURS` (default 24). | `google_jobs`, `google`, `google_news` |
 | Score | Deterministic intent score; every point has a reason | — |
-| Qualify | The LLM (Groq, Gemini or Claude) reads the evidence and picks the dataset that would help most | — |
+| Research | The LLM decides what to look up about the company and runs up to `RESEARCH_MAX_SEARCHES` (default 3) web, news and Maps searches itself, through [`serpapi-search-tools`](https://serpapi.github.io/serpapi-search-tools-python/) as LangGraph tools. Its findings feed the qualify and pitch steps, and the deal shows every search it chose. Groq or Claude; skipped for anonymous Reddit posters | `google`, `google_news`, `google_maps` |
+| Qualify | The LLM (Groq, Gemini or Claude) reads the evidence and research findings and picks the dataset that would help most | — |
 | Sample | A real 10-row dataset for that lead, built *before* pitching | `google_maps` |
 | Pitch | Short email citing their exact need, sample attached as CSV | — |
 | Negotiate | The LLM classifies each reply (interested, question, price objection, accept, not now, unsubscribe). **Code sets every price** from your pricing rules; the LLM only words it | — |

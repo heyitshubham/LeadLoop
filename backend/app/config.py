@@ -43,6 +43,7 @@ class Settings:
     discount_step_pct: int
     max_followups: int
     followup_days: float
+    research_max_searches: int  # searches the LLM may run to research one lead before qualifying it (0 = off)
     fulfil_max_searches: int  # SerpApi searches one order may spend (pages + enrichment)
     fulfil_enrich_rows: int  # top rows that get review topics and a hiring check (2 searches each)
     serp_cost_per_search_usd: float  # what one search costs you, for the margin on each order
@@ -143,6 +144,7 @@ def load_settings() -> Settings:
         discount_step_pct=int(os.getenv("DISCOUNT_STEP_PCT", "10")),
         max_followups=int(os.getenv("MAX_FOLLOWUPS", "2")),
         followup_days=float(os.getenv("FOLLOWUP_AFTER_DAYS", "3")),
+        research_max_searches=int(os.getenv("RESEARCH_MAX_SEARCHES", "3")),
         fulfil_max_searches=int(os.getenv("FULFIL_MAX_SEARCHES", "50")),
         fulfil_enrich_rows=int(os.getenv("FULFIL_ENRICH_ROWS", "10")),
         # SerpApi Developer plan: $75 for 5,000 searches.

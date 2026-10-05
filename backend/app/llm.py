@@ -2,10 +2,11 @@
 using whichever keys are set; if all fail (quota, outage), each function falls back to
 deterministic rules, and `last_fallback` says why so the UI can show it."""
 
+import json
 import logging
 import re
 import time
-from typing import Literal
+from typing import Callable, Literal
 
 import anthropic
 import groq
@@ -192,9 +193,102 @@ def _parse_claude[T: BaseModel](prompt: str, schema: type[T]) -> T | None:
     return response.parsed_output
 
 
-def _evidence(lead: Lead) -> str:
+# --- tool use (agent steps that search for themselves) -----------------------------
+
+ToolCall = Callable[[str, dict], str]  # (tool name, arguments) -> result text for the model
+MAX_TOOL_TURNS = 6
+
+
+def run_tools(prompt: str, tools: list[dict], call: ToolCall, may_search: Callable[[], bool]) -> tuple[str | None, str]:
+    """Lets the LLM call `tools` (OpenAI function format) until it answers in text.
+    `may_search` turns tools off once the step's search cap is reached, so the model must answer.
+    Groq, then Claude; Gemini has no tool loop here. Returns (answer, provider) or (None, why)."""
+    reasons = []
+    for name, loop in (("Groq", _tools_groq if _groq else None), ("Claude", _tools_claude if _claude else None)):
+        if loop is None:
+            continue
+        text, why = loop(prompt, tools, call, may_search)
+        if text:
+            return text, name
+        reasons.append(why)
+    return None, "; ".join(r for r in reasons if r) or "no Groq or Claude key set"
+
+
+def _tools_groq(prompt: str, tools: list[dict], call: ToolCall, may_search: Callable[[], bool]) -> tuple[str | None, str | None]:
+    why = "Groq unavailable"
+    for model in [m for m in (settings.groq_model, settings.groq_fallback_model) if m]:
+        messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
+        try:
+            for _ in range(MAX_TOOL_TURNS):
+                # At the cap, ask for the answer with no tools offered: with tool_choice="none" gpt-oss
+                # sometimes calls a tool anyway, and Groq rejects the whole turn.
+                more = may_search()
+                if not more:
+                    messages.append({"role": "user", "content": "No more searches. Answer now, in the format asked, "
+                                     "using only what the searches returned."})
+                r = _groq.chat.completions.create(
+                    model=model, messages=messages, reasoning_effort="low", include_reasoning=False,
+                    **({"tools": tools, "tool_choice": "auto"} if more else {}),
+                )
+                m = r.choices[0].message
+                if not m.tool_calls:
+                    return m.content, None
+                messages.append({"role": "assistant", "content": m.content or "", "tool_calls": [
+                    {"id": c.id, "type": "function", "function": {"name": c.function.name, "arguments": c.function.arguments}}
+                    for c in m.tool_calls]})
+                for c in m.tool_calls:
+                    try:
+                        args = json.loads(c.function.arguments or "{}")
+                    except json.JSONDecodeError:
+                        args = None
+                    result = call(c.function.name, args) if isinstance(args, dict) else "Invalid JSON arguments."
+                    messages.append({"role": "tool", "tool_call_id": c.id, "content": result})
+            why = f"Groq ({model}) kept searching without answering"
+        except groq.RateLimitError:
+            why = f"Groq rate limit on {model}"
+        except groq.APIStatusError as e:
+            why = f"Groq error {e.status_code} on {model}"
+            log.warning("%s: %s", why, str(e)[:200])
+        except (groq.APIConnectionError, groq.APITimeoutError):
+            return None, "Groq unreachable"
+        log.warning("%s; trying the next model", why)
+    return None, why
+
+
+def _tools_claude(prompt: str, tools: list[dict], call: ToolCall, may_search: Callable[[], bool]) -> tuple[str | None, str | None]:
+    specs = [{"name": t["function"]["name"], "description": t["function"]["description"],
+              "input_schema": t["function"]["parameters"]} for t in tools]
+    messages: list[dict] = [{"role": "user", "content": prompt}]
+    try:
+        for _ in range(MAX_TOOL_TURNS):
+            r = _claude.beta.messages.create(
+                model=settings.model, max_tokens=16000, system=SYSTEM, tools=specs, messages=messages,
+                tool_choice={"type": "auto" if may_search() else "none"},
+                output_config={"effort": "low"},
+                betas=["server-side-fallback-2026-07-01"],
+                fallbacks="default",
+            )
+            if r.stop_reason == "refusal":
+                return None, "Claude declined"
+            uses = [b for b in r.content if b.type == "tool_use"]
+            if r.stop_reason != "tool_use" or not uses:
+                return "".join(b.text for b in r.content if b.type == "text"), None
+            messages.append({"role": "assistant", "content": r.content})
+            messages.append({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": b.id, "content": call(b.name, b.input)} for b in uses]})
+        return None, "Claude kept searching without answering"
+    except anthropic.APIStatusError as e:
+        log.warning("Claude tool call failed (%s)", e.status_code)
+        return None, f"Claude error {e.status_code}"
+    except anthropic.APIConnectionError:
+        return None, "Claude unreachable"
+
+
+def _evidence(lead: Lead, research: list[str] | None = None) -> str:
     lines = [f"- [{s.source}] {s.title} ({s.posted or 'date unknown'}): {s.snippet}" for s in lead.signals]
-    return f"Lead: {lead.name}\nLocation: {lead.location or 'unknown'}\nEvidence:\n" + "\n".join(lines)
+    found = ("\nWhat our research found (web, news and Maps searches):\n" + "\n".join(f"- {n}" for n in research)
+             if research else "")
+    return f"Lead: {lead.name}\nLocation: {lead.location or 'unknown'}\nEvidence:\n" + "\n".join(lines) + found
 
 
 # --- assess -----------------------------------------------------------------
@@ -214,9 +308,9 @@ CITIES = ["Pune", "Bengaluru", "Mumbai", "Delhi", "Hyderabad", "Chennai", "Kolka
 DEFAULT_CITY = {"INR": "Bengaluru", "USD": "New York"}
 
 
-def assess(lead: Lead) -> Assessment:
+def assess(lead: Lead, research: list[str] | None = None) -> Assessment:
     prompt = (
-        f"{_evidence(lead)}\n\nAssess this lead for a custom-dataset offer. Pick the single "
+        f"{_evidence(lead, research)}\n\nAssess this lead for a custom-dataset offer. Pick the single "
         "business category and a city in the lead's own country whose data would most help them, "
         "so we can build them a free 10-row sample before pitching."
     )
@@ -239,10 +333,10 @@ def _demo_assess(lead: Lead) -> Assessment:
 # --- pitch ------------------------------------------------------------------
 
 
-def write_pitch(lead: Lead, a: Assessment, sample: list[dict]) -> Pitch:
+def write_pitch(lead: Lead, a: Assessment, sample: list[dict], research: list[str] | None = None) -> Pitch:
     preview = "\n".join(f"- {r['name']} | {r.get('rating')}★ ({r.get('reviews')} reviews)" for r in sample[:3])
     prompt = (
-        f"{_evidence(lead)}\n\nOur read: {a.need_summary}\nAngle: {a.angle}\n"
+        f"{_evidence(lead, research)}\n\nOur read: {a.need_summary}\nAngle: {a.angle}\n"
         f"We already built them a free {len(sample)}-row sample of {a.sample_category} in "
         f"{a.sample_city} (attached as CSV). First rows:\n{preview}\n\n"
         "Write a cold email under 120 words: reference their exact need, mention the attached "

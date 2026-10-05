@@ -1,6 +1,6 @@
 """One LangGraph thread per deal.
 
-  qualify -> sample -> draft_pitch -> [gate: pitch] -> send_pitch
+  research -> qualify -> sample -> draft_pitch -> [gate: pitch] -> send_pitch
           -> wait_for_lead <-------------------------------------------+
                | lead replied                | no reply (follow-up due)  |
                v                             v                           |
@@ -13,7 +13,8 @@
 
 Gates use `interrupt()`: the graph pauses, the board shows the draft, and the human's
 decision resumes the thread from its checkpoint. Gates named in `autopilot` are skipped.
-`fulfil` builds the dataset the lead bought (see fulfil.py) and the delivery gate shows it
+`research` lets the LLM search the web, news and Maps about the lead (see research.py) before
+`qualify` reads the evidence. `fulfil` builds the dataset the lead bought (see fulfil.py) and the delivery gate shows it
 with its cost and margin before the CSV goes out.
 `wait_for_lead` is also an interrupt, resumed by the inbox poller, the follow-up
 scheduler, or the board's "simulate reply" box in sandbox mode.
@@ -31,6 +32,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 from app import llm, store
+from app.research import research as research_lead
 from app.config import settings
 from app.models import Assessment, Lead, Pitch, ReplyRead, Stage
 from app.pipeline import fulfil as orders
@@ -45,6 +47,7 @@ class DealState(TypedDict, total=False):
     lead: dict
     autopilot: list[str]
     stage: str
+    research: dict  # {"notes", "searches", "by", "skipped"}: what the agent looked up before qualifying
     assessment: dict
     sample: list[dict]
     pitch: dict
@@ -84,8 +87,23 @@ def _lead(state: DealState) -> Lead:
 # --- prospecting --------------------------------------------------------------
 
 
+def research(state: DealState) -> DealState:
+    r = research_lead(_lead(state), serp)
+    if r["skipped"]:
+        note = f"research skipped: {r['skipped']}"
+    else:
+        live = sum(s["source"] == "live" for s in r["searches"])
+        note = (f"researched the lead with {len(r['searches'])} search{'es' * (len(r['searches']) != 1)} "
+                f"it chose ({live} live) via {r['by']}: {len(r['notes'])} finding{'s' * (len(r['notes']) != 1)}")
+    return {"research": r, "audit": _log("agent", note)}
+
+
+def _notes(state: DealState) -> list[str]:
+    return (state.get("research") or {}).get("notes") or []
+
+
 def qualify(state: DealState) -> DealState:
-    a = llm.assess(_lead(state))
+    a = llm.assess(_lead(state), _notes(state))
     stage = Stage.QUALIFIED.value if a.fit_score >= MIN_FIT else Stage.DISQUALIFIED.value
     return {
         "assessment": a.model_dump(),
@@ -105,7 +123,7 @@ def sample(state: DealState) -> DealState:
 
 
 def draft_pitch(state: DealState) -> DealState:
-    p = llm.write_pitch(_lead(state), Assessment(**state["assessment"]), state["sample"])
+    p = llm.write_pitch(_lead(state), Assessment(**state["assessment"]), state["sample"], _notes(state))
     return {
         "pitch": p.model_dump(),
         "stage": Stage.AWAITING_APPROVAL.value,
@@ -401,6 +419,7 @@ def _after_send_delivery(state: DealState) -> str:
 def build_graph(checkpointer):
     g = StateGraph(DealState)
     for name, fn in [
+        ("research", research),
         ("qualify", qualify),
         ("sample", sample),
         ("draft_pitch", draft_pitch),
@@ -416,7 +435,8 @@ def build_graph(checkpointer):
         ("send_delivery", send_delivery),
     ]:
         g.add_node(name, fn)
-    g.add_edge(START, "qualify")
+    g.add_edge(START, "research")
+    g.add_edge("research", "qualify")
     g.add_conditional_edges("qualify", _after_qualify, ["sample", END])
     g.add_edge("sample", "draft_pitch")
     g.add_edge("draft_pitch", "approve_pitch")

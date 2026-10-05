@@ -9,4 +9,5 @@ pydantic==2.13.5
 pytest==9.1.1
 python-dotenv==1.2.4
 serpapi==1.1.2
+serpapi-search-tools==1.0.0
 uvicorn==0.54.0

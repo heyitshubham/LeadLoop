@@ -399,6 +399,13 @@ function renderDrawer(id) {
 
   if (d?.assessment) html += `<h4>Agent's read</h4><p>${esc(d.assessment.need_summary)}</p>
     <p class="muted">Fit ${d.assessment.fit_score}/100 · Angle: ${esc(d.assessment.angle)}</p>`;
+  if (d?.research) {
+    const r = d.research;
+    const searches = r.searches.map((s) => `${esc(s.engine)} “${esc(s.query)}” (${esc(s.source)})`).join(" · ");
+    html += `<h4>Agent's research</h4>`
+      + (r.notes.length ? `<ul class="evidence">${r.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : "")
+      + `<p class="muted">${r.skipped ? `Skipped: ${esc(r.skipped)}` : `Searches it chose (via ${esc(r.by)})`}${searches ? `: ${searches}` : ""}</p>`;
+  }
   if (d?.sample?.length) html += `<h4>Free sample (${d.sample.length} rows) · <a href="/api/deals/${encodeURIComponent(id)}/sample.csv" target="_blank">CSV</a></h4>
     <div class="table-wrap"><table><tr><th>Name</th><th>Rating</th><th>Reviews</th><th>Phone</th><th>Address</th></tr>
     ${d.sample.map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.rating)}</td><td>${esc(r.reviews)}</td><td>${esc(r.phone)}</td><td>${esc(r.address)}</td></tr>`).join("")}
