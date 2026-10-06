@@ -153,7 +153,9 @@ def test_won_deal_builds_enriches_and_delivers_the_order():
     assert order["invoice"] == round(1600 * 12 / 500) and order["invoice_note"].startswith("pro-rata")
     assert order["searches"]["google_maps_reviews"] == order["enriched"] == 10
     assert order["searches"]["google_jobs"] == 10 and order["live_credits"] == 0
-    assert order["searches_total"] <= 50 and order["serp_cost"] > 0 and order["margin_pct"] is not None
+    assert order["searches_total"] <= 50 + order["presale_searches"] and order["serp_cost"] > 0
+    assert order["presale_searches"] == 1  # the sample's Maps page; research is skipped without an LLM
+    assert order["margin_pct"] is not None
     assert [r["quality"] for r in deal["order_preview"]] == sorted((r["quality"] for r in deal["order_preview"]), reverse=True)
     assert deal["order_preview"][0]["customers_mention"].startswith("site visits")
     assert deal["order_preview"][0]["hiring_now"] == "no"  # other employers' postings don't count
@@ -579,4 +581,31 @@ def test_research_skips_reddit_and_runs_without_an_llm():
     lead = _company_lead()
     assert research(lead.model_copy(update={"source": "reddit"}), _FakeSerp())["skipped"].startswith("anonymous")
     r = research(lead, _FakeSerp())  # DEMO: no Groq or Claude key
-    assert r["skipped"] == "no Groq or Claude key set" and r["notes"] == []
+    assert r["skipped"] == "no LLM key set" and r["notes"] == []
+
+
+def test_research_gemini_loop(monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from app import llm
+    from app.research import research
+
+    sent = []
+
+    def generate_content(model, contents, config):
+        sent.append((list(contents), config))
+        if len(sent) == 1:
+            call = NS(name="news_search", args={"query": "Nestora Realty funding"})
+            return NS(function_calls=[call], text=None, candidates=[NS(content=llm.genai_types.Content(role="model"))])
+        return NS(function_calls=None, text="- No funding news found (news_search)")
+
+    lead = _company_lead()
+    monkeypatch.setattr(llm, "_groq", None)
+    monkeypatch.setattr(llm, "_gemini", NS(models=NS(generate_content=generate_content)))
+    fake = _FakeSerp()
+    r = research(lead, fake)
+    assert fake.calls == [("google_news", {"q": "Nestora Realty funding"})]
+    assert r["by"] == "Gemini" and r["notes"] == ["No funding news found (news_search)"]
+    reply = sent[1][0][-1].parts[0].function_response
+    assert reply.name == "news_search" and reply.response["result"] == "{\"no_results\":true}"  # fake has no news_results
+    assert sent[0][1].tool_config.function_calling_config.mode == "AUTO"

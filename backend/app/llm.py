@@ -202,16 +202,17 @@ MAX_TOOL_TURNS = 6
 def run_tools(prompt: str, tools: list[dict], call: ToolCall, may_search: Callable[[], bool]) -> tuple[str | None, str]:
     """Lets the LLM call `tools` (OpenAI function format) until it answers in text.
     `may_search` turns tools off once the step's search cap is reached, so the model must answer.
-    Groq, then Claude; Gemini has no tool loop here. Returns (answer, provider) or (None, why)."""
+    Groq, then Gemini, then Claude. Returns (answer, provider) or (None, why)."""
     reasons = []
-    for name, loop in (("Groq", _tools_groq if _groq else None), ("Claude", _tools_claude if _claude else None)):
+    for name, loop in (("Groq", _tools_groq if _groq else None), ("Gemini", _tools_gemini if _gemini else None),
+                       ("Claude", _tools_claude if _claude else None)):
         if loop is None:
             continue
         text, why = loop(prompt, tools, call, may_search)
         if text:
             return text, name
         reasons.append(why)
-    return None, "; ".join(r for r in reasons if r) or "no Groq or Claude key set"
+    return None, "; ".join(r for r in reasons if r) or "no LLM key set"
 
 
 def _tools_groq(prompt: str, tools: list[dict], call: ToolCall, may_search: Callable[[], bool]) -> tuple[str | None, str | None]:
@@ -252,6 +253,40 @@ def _tools_groq(prompt: str, tools: list[dict], call: ToolCall, may_search: Call
         except (groq.APIConnectionError, groq.APITimeoutError):
             return None, "Groq unreachable"
         log.warning("%s; trying the next model", why)
+    return None, why
+
+
+def _tools_gemini(prompt: str, tools: list[dict], call: ToolCall, may_search: Callable[[], bool]) -> tuple[str | None, str | None]:
+    declarations = [genai_types.FunctionDeclaration(
+        name=t["function"]["name"], description=t["function"]["description"],
+        parameters_json_schema=t["function"]["parameters"]) for t in tools]
+    why = "Gemini unavailable"
+    for model in [m for m in (settings.gemini_model, settings.gemini_fallback_model) if m]:
+        contents = [genai_types.Content(role="user", parts=[genai_types.Part(text=prompt)])]
+        try:
+            for _ in range(MAX_TOOL_TURNS):
+                mode = "AUTO" if may_search() else "NONE"
+                config = genai_types.GenerateContentConfig(
+                    system_instruction=SYSTEM,
+                    tools=[genai_types.Tool(function_declarations=declarations)],
+                    tool_config=genai_types.ToolConfig(function_calling_config=genai_types.FunctionCallingConfig(mode=mode)),
+                    thinking_config=genai_types.ThinkingConfig(thinking_level=genai_types.ThinkingLevel.LOW),
+                    automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
+                )
+                r = _gemini.models.generate_content(model=model, contents=contents, config=config)
+                calls = r.function_calls or []
+                if not calls:
+                    return r.text, None
+                contents.append(r.candidates[0].content)  # as returned: keeps Gemini's thought signatures
+                contents.append(genai_types.Content(role="user", parts=[
+                    genai_types.Part.from_function_response(name=c.name, response={"result": call(c.name, dict(c.args or {}))})
+                    for c in calls]))
+            why = f"Gemini ({model}) kept searching without answering"
+        except genai_errors.ServerError as e:
+            why = f"Gemini busy ({e.code})"
+        except genai_errors.ClientError as e:
+            why = "Gemini free-tier daily quota used up" if e.code == 429 else f"Gemini error {e.code}"
+        log.warning("%s on %s; trying the next model", why, model)
     return None, why
 
 

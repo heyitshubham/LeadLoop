@@ -230,12 +230,23 @@ def send_reply(state: DealState) -> DealState:
 # --- fulfilment ---------------------------------------------------------------
 
 
+def _presale_searches(state: DealState) -> dict[str, int]:
+    """Searches spent before the sale: the agent's research, plus one Maps page for the sample."""
+    out: dict[str, int] = {}
+    for s in (state.get("research") or {}).get("searches", []):
+        out[s["engine"]] = out.get(s["engine"], 0) + 1
+    if state.get("sample"):
+        out["google_maps"] = out.get("google_maps", 0) + 1
+    return out
+
+
 def fulfil(state: DealState) -> DealState:
     a = Assessment(**state["assessment"])
     lead = state["lead"]
     q = state["quote"]
     try:
-        rows, report = orders.build_order(serp, a.sample_category, a.sample_city, lead.get("market"), q)
+        rows, report = orders.build_order(serp, a.sample_category, a.sample_city, lead.get("market"), q,
+                                          presale=_presale_searches(state))
     except CreditBudgetExceeded as e:
         return {"send_error": str(e), "audit": _log("agent", f"could not build the order: {e}")}
     if not rows:

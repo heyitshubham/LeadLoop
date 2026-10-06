@@ -145,9 +145,13 @@ def _cost(searches: int, currency: str, cfg: Settings) -> float:
 
 
 def build_order(
-    serp: SerpClient, category: str, city: str, market: str | None, quote: dict, cfg: Settings = default_settings
+    serp: SerpClient, category: str, city: str, market: str | None, quote: dict, cfg: Settings = default_settings,
+    presale: dict[str, int] | None = None,
 ) -> tuple[list[dict], dict]:
-    """Returns (rows best-first, report). Never invoices for rows it did not deliver."""
+    """Returns (rows best-first, report). Never invoices for rows it did not deliver.
+    `presale` counts searches by engine spent winning the deal (research, sample): they are part of
+    the order's cost, but not of its search budget."""
+    presale = presale or {}
     b = _Budget(serp, cfg.fulfil_max_searches)
     want = quote["rows"]
     enrich = min(cfg.fulfil_enrich_rows, want)
@@ -169,7 +173,8 @@ def build_order(
 
     n = len(rows)
     price = quote["price"] if n >= want else round(quote["price"] * n / want)
-    cost = _cost(b.used, quote["currency"], cfg)
+    total = b.used + sum(presale.values())
+    cost = _cost(total, quote["currency"], cfg)
 
     def pct(field):
         return round(100 * sum(1 for r in rows if r.get(field)) / n) if n else 0
@@ -182,8 +187,9 @@ def build_order(
         "enriched": enriched,
         "avg_quality": round(sum(r["quality"] for r in rows) / n) if n else 0,
         "completeness": {f: pct(f) for f in ("phone", "website", "rating", "open_state")},
-        "searches": dict(b.by_engine),
-        "searches_total": b.used,
+        "searches": {e: b.by_engine.get(e, 0) + presale.get(e, 0) for e in {*b.by_engine, *presale}},
+        "searches_total": total,
+        "presale_searches": sum(presale.values()),
         "live_credits": b.live,
         "currency": quote["currency"],
         "invoice": price,

@@ -318,7 +318,7 @@ function orderBlock(o, id) {
     <div><span>Invoice</span><b>${money(o.invoice, o.currency)}</b></div>
     <div><span>SerpApi cost</span><b>${money(o.serp_cost, o.currency)}</b></div>
     <div><span>Margin</span><b>${o.margin_pct ?? "—"}%</b></div>
-    <div class="note">${esc(o.invoice_note)} · ${o.searches_total} searches (${esc(engines)}; ${o.live_credits} live credits) ·
+    <div class="note">${esc(o.invoice_note)} · ${o.searches_total} searches (${esc(engines)}; ${o.live_credits} live credits${o.presale_searches ? `; ${o.presale_searches} of them to research and sample the lead` : ""}) ·
       ${esc(o.cities.join(", "))} · ${o.duplicates_dropped} duplicates dropped · top ${o.enriched} rows enriched ·
       phone on ${o.completeness.phone}%, website on ${o.completeness.website}% ·
       <a href="/api/deals/${encodeURIComponent(id)}/dataset.csv" target="_blank">full CSV</a></div></div>`;
