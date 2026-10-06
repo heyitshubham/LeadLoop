@@ -446,7 +446,7 @@ function wire(id, d) {
   };
   if ($("reject")) $("reject").onclick = (e) => run(e.target, "…", () =>
     post(`/api/deals/${enc}/decision`, { action: "reject", note: $("note").value || null }));
-  document.querySelectorAll("[data-preset]").forEach((b) => (b.onclick = () => { $("sim").value = PRESETS[b.dataset.preset]; $("sim").focus(); }));
+  document.querySelectorAll("[data-preset]").forEach((b) => (b.onclick = () => { $("sim").value = PRESETS[b.dataset.preset]; drawerDirty = true; $("sim").focus(); }));
   if ($("simulate")) $("simulate").onclick = (e) => {
     const text = $("sim").value.trim(); if (!text) return toast("Type or pick a reply first");
     run(e.target, "Agent is reading the reply…", () => post(`/api/deals/${enc}/simulate-reply`, { text }));
