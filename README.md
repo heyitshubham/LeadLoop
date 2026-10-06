@@ -1,10 +1,29 @@
 # LeadLoop
 
-An AI agent that runs a small data business end to end. SerpApi powers both halves:
-it **finds buyers** (people publicly asking for data) and **builds what they buy**
-(custom business datasets). A human can approve, edit or reject any step.
+[![tests](https://github.com/heyitshubham/LeadLoop/actions/workflows/tests.yml/badge.svg)](https://github.com/heyitshubham/LeadLoop/actions/workflows/tests.yml)
+
+An AI agent that runs a small market-research desk end to end. It **finds people who need
+research** on local businesses (companies hiring for lead-gen work, people asking on Reddit,
+freshly funded startups), **gives each one a free 10-business sample** as a lead magnet, and sells
+**your research service**: finding, deduplicating, scoring and enriching every business in their
+target market. SerpApi powers every step, and a human can approve, edit or reject any of them.
 
 SerpApi India Hackathon 2026 — track: AI Agents.
+
+![The LeadLoop board: deals move from discovered to won while the agent works](docs/board.png)
+
+## Why it's an agent
+
+- **It plans and searches for itself.** Discovery plans its own searches across markets. Before
+  qualifying a lead, the LLM decides what to look up about the company and runs web, news and Maps
+  searches through [`serpapi-search-tools`](https://serpapi.github.io/serpapi-search-tools-python/).
+- **It compares and decides.** It merges signals for the same company, scores buying intent with a
+  reason for every point, drops job boards and competitors, and picks the research that would help most.
+- **It acts.** It builds a real sample, writes the pitch, reads replies, negotiates within your
+  pricing rules, does the paid research and delivers it.
+- **It learns.** Reply and win rates per lead source shift the next discovery's scores.
+- **You stay in control.** LangGraph `interrupt()` pauses before every outgoing email, and every
+  agent and human action is in the deal's audit trail.
 
 ## Pipeline
 
@@ -27,12 +46,12 @@ discover -> research -> qualify -> build sample -> draft pitch -> [you approve] 
 |---|---|---|
 | Discover | Companies hiring for research / lead-gen / data entry, Reddit posts asking for lists, freshly funded startups. Signals for the same company are merged. Anyone already in a deal (open or closed) is skipped, and discovery searches again once its cached results are older than `LEADLOOP_DISCOVERY_REFRESH_HOURS` (default 24). | `google_jobs`, `google`, `google_news` |
 | Score | Deterministic intent score; every point has a reason | — |
-| Research | The LLM decides what to look up about the company and runs up to `RESEARCH_MAX_SEARCHES` (default 3) web, news and Maps searches itself, through [`serpapi-search-tools`](https://serpapi.github.io/serpapi-search-tools-python/) as LangGraph tools. Its findings feed the qualify and pitch steps, and the deal shows every search it chose. Groq or Claude; skipped for anonymous Reddit posters | `google`, `google_news`, `google_maps` |
-| Qualify | The LLM (Groq, Gemini or Claude) reads the evidence and research findings and picks the dataset that would help most | — |
-| Sample | A real 10-row dataset for that lead, built *before* pitching | `google_maps` |
+| Research | The LLM decides what to look up about the company and runs up to `RESEARCH_MAX_SEARCHES` (default 3) web, news and Maps searches itself, through [`serpapi-search-tools`](https://serpapi.github.io/serpapi-search-tools-python/) as LangGraph tools. Its findings feed the qualify and pitch steps, and the deal shows every search it chose. Groq, Gemini or Claude; skipped for anonymous Reddit posters | `google`, `google_news`, `google_maps` |
+| Qualify | The LLM (Groq, Gemini or Claude) reads the evidence and research findings and picks the research that would help most: one business category in one city | — |
+| Sample | The lead magnet: a free, real sample of 10 businesses researched for that lead *before* pitching | `google_maps` |
 | Pitch | Short email citing their exact need, sample attached as CSV | — |
 | Negotiate | The LLM classifies each reply (interested, question, price objection, accept, not now, unsubscribe). **Code sets every price** from your pricing rules; the LLM only words it | — |
-| Fulfil | When the lead accepts, the agent builds the order: Google Maps pages for the sample's city, then the market's other big cities, until the row count is met. Rows are deduplicated by place id, scored for completeness, and the top rows are enriched with what customers mention in reviews and whether the business is hiring. Every search is costed, so each order shows its SerpApi cost and margin. Short orders are invoiced pro-rata, never padded | `google_maps`, `google_maps_reviews`, `google_jobs` |
+| Fulfil | When the lead accepts, the agent does the research: Google Maps pages for the sample's city, then the market's other big cities, until the row count is met. Rows are deduplicated by place id, scored for completeness, and the top rows are enriched with what customers mention in reviews and whether the business is hiring. Every search is costed, including the research and sample that won the deal, so each order shows its SerpApi cost and margin. Short orders are invoiced pro-rata, never padded | `google_maps`, `google_maps_reviews`, `google_jobs` |
 | Learn | Reply and win rates per lead source (jobs, Reddit, news) move the intent scores of that source's next leads by up to ±10, with the reason in the lead's evidence | — |
 | Follow up | Drafted automatically after `FOLLOWUP_AFTER_DAYS` of silence, up to `MAX_FOLLOWUPS` | — |
 | Gates | LangGraph `interrupt()` pauses before every outgoing email until you approve, edit or discard it. Autopilot can skip the pitch, reply or delivery gate | — |
@@ -46,7 +65,8 @@ Groq uses strict structured output, so every answer matches its Pydantic schema.
 
 ### Pricing rules
 
-Set in `.env`. Defaults: ₹4 per row, ₹1,500 minimum, 500 rows if the lead doesn't say.
+The fee is for the research work, priced per business researched. Set in `.env`. Defaults:
+₹4 per business, ₹1,500 minimum, 500 businesses if the lead doesn't say.
 Each price objection takes `DISCOUNT_STEP_PCT` off, down to `MAX_DISCOUNT_PCT`. After that the
 agent offers a smaller scope at the same rate instead of going lower. Accepting never re-prices.
 
@@ -56,8 +76,8 @@ agent offers a smaller scope at the same rate instead of going lower. Accepting 
 sets how many top rows get review topics and a hiring check (2 searches each). Cost uses
 `SERP_COST_PER_SEARCH_USD` (default $0.015, the Developer plan's $75 per 5,000 searches), so the
 board shows a margin per order. Worked example at the defaults: 500 rows need at least 25 Maps
-pages, plus 20 enrichment searches, so 45 searches. At $0.015 each that's about ₹59 against a
-₹2,000 invoice (500 rows × ₹4). Bigger orders need a higher `FULFIL_MAX_SEARCHES`.
+pages, plus 20 enrichment searches, so 45 searches, plus up to 4 spent before the sale (research
+and the sample). At $0.015 each that's about ₹65 against a ₹2,000 invoice (500 businesses × ₹4). Bigger orders need a higher `FULFIL_MAX_SEARCHES`.
 
 The full CSV is saved in `backend/data/datasets/` and attached to the delivery email. The deal
 state keeps only a 10-row preview and the report.
@@ -129,16 +149,7 @@ With a paid Zoho plan (IMAP enabled), set `IMAP_HOST=imappro.zoho.in` plus `IMAP
 
 ## Demo video
 
-`demo/make_demo.sh` records the demo end to end on a sandboxed copy of the app (port 8002, mail to
-Mailpit, your data untouched):
-
-1. `tts.py` — narration from `demo/narration.json` with a neural voice (edge-tts, falls back to
-   macOS `say`); pronunciations such as "Serp API" are set there, subtitles keep the written name.
-2. `record.cjs` — a scripted Playwright run: architecture and LangGraph slides (`slides.html`),
-   the live app with a step bar and a label naming the component at work, then unit-economics and
-   time-saved slides filled with numbers measured in that run. Frames are captured at 1920×1200.
-3. `compose.py` — shortens idle AI waits, lays each narration line at the moment its step appears
-   (never overlapping), normalises loudness, and writes `leadloop-demo.mp4` plus `.srt` subtitles.
+A 3-minute walkthrough of the agent running locally: _link coming with the submission._
 
 ## Guardrails
 
@@ -161,17 +172,20 @@ visible need:
 - Live mode has a daily send cap (`LEADLOOP_DAILY_SEND_CAP`, default 25), an opt-out line on every
   email, and a suppression list: "stop" ends all contact with that address.
 - At most `MAX_FOLLOWUPS` (default 2) follow-ups, then the deal closes on its own.
-- The datasets hold business listings (name, address, public phone, website, ratings), never
+- The research holds business listings (name, address, public phone, website, ratings), never
   personal data about individuals.
 
 Check the anti-spam law where your leads are (for example CAN-SPAM in the US, the IT Act and
 DPDP Act in India) before switching to live mode.
 
-### On reselling search data
+### What LeadLoop sells
 
-SerpApi's Terms of Service say customers may not "sell, resell or exploit any portion of the
-Service". LeadLoop does not resell API access or raw responses. It delivers a compiled
-deliverable: business listings merged across searches, deduplicated, scored, and enriched with
-review topics and hiring signals. Whether that counts as "a portion of the Service" is for SerpApi
-to decide. **Ask SerpApi before you charge anyone for a dataset.** Google's own terms on Maps
-content may apply too. Until then, run it in sandbox mode or deliver at no charge.
+LeadLoop sells research work, not search data. It never resells SerpApi access or raw search
+responses. What the client pays for is the research: finding the businesses in their target market
+across many searches, deduplicating them, scoring each one, and summarising review topics and hiring
+signals for the best ones. The 10-business sample is free, as a lead magnet. Check the terms of the
+data sources you use (SerpApi, Google Maps) before you run it live.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

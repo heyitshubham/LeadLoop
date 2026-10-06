@@ -341,7 +341,7 @@ function renderDrawer(id) {
       <input type="text" id="email" placeholder="Lead's email${live ? " (required in live mode)" : " (optional in sandbox)"}" value="${esc(lead.email || "")}">
       <label class="check"><input type="checkbox" id="auto-pitch"> Autopilot: send the pitch without asking me</label>
       <label class="check"><input type="checkbox" id="auto-reply"> Autopilot: send replies and follow-ups without asking me</label>
-      <label class="check"><input type="checkbox" id="auto-delivery"> Autopilot: deliver the dataset once they buy</label>
+      <label class="check"><input type="checkbox" id="auto-delivery"> Autopilot: deliver the research once they buy</label>
       <button class="primary" id="start">Qualify, build sample &amp; draft pitch</button>`;
   } else if (gate?.gate === "pitch") {
     html += `<h4>Pitch</h4><div class="gate"><div class="label">Waiting for your decision</div>
@@ -365,7 +365,7 @@ function renderDrawer(id) {
   } else if (gate?.gate === "delivery") {
     html += `<h4>Deliver the order</h4><div class="gate"><div class="label">Waiting for your decision</div>
       ${gate.send_error ? `<div class="err">Last send failed: ${esc(gate.send_error)}</div>` : ""}
-      <p class="muted">They accepted. The agent built the dataset and costed it; check it, then send.</p>
+      <p class="muted">They accepted. The agent did the research and costed it; check it, then send.</p>
       ${orderBlock(d.order, id)}
       <input type="text" id="subj" value="${esc(d.delivery_email.subject)}" style="margin-top:8px">
       <textarea id="body" style="margin-top:8px">${esc(d.delivery_email.body)}</textarea>
@@ -386,7 +386,7 @@ function renderDrawer(id) {
   }
 
   if (d?.order && gate?.gate !== "delivery") html += `<h4>Order</h4>${orderBlock(d.order, id)}`;
-  if (d?.order_preview?.length) html += `<h4>Dataset preview (best ${d.order_preview.length} of ${d.order.delivered})</h4>
+  if (d?.order_preview?.length) html += `<h4>Research preview (best ${d.order_preview.length} of ${d.order.delivered})</h4>
     <div class="table-wrap"><table><tr><th>Name</th><th>Quality</th><th>Phone</th><th>Customers mention</th><th>Hiring</th><th>City</th></tr>
     ${d.order_preview.map((r) => `<tr><td>${esc(r.name)}</td><td>${esc(r.quality)}</td><td>${esc(r.phone || "—")}</td><td>${esc(r.customers_mention || "—")}</td><td>${esc(r.hiring_now || "—")}</td><td>${esc(r.city)}</td></tr>`).join("")}
     </table></div>`;
@@ -620,7 +620,7 @@ function renderInsights(s) {
     <div class="panel span-7"><h3>Unit economics</h3><p class="sub">Every built order: searches spent, what they cost at your SerpApi rate, what was invoiced. Short orders are invoiced pro-rata.</p>
       ${s.orders.length ? `<div class="table-wrap"><table><tr><th>Deal</th><th>Rows</th><th>Searches</th><th>Live credits</th><th>SerpApi cost</th><th>Invoice</th><th>Margin</th></tr>
         ${s.orders.map((o) => `<tr><td>${esc(o.deal)}</td><td>${o.delivered} / ${o.ordered}</td><td>${o.searches_total}</td><td>${o.live_credits}</td><td>${money(o.serp_cost, o.currency)}</td><td>${money(o.invoice, o.currency)}</td><td>${o.margin_pct ?? "—"}%</td></tr>`).join("")}</table></div>`
-        : `<div class="nodata">No orders yet. When a lead accepts, the agent builds the dataset and it shows up here.</div>`}</div>
+        : `<div class="nodata">No orders yet. When a lead accepts, the agent does the research and it shows up here.</div>`}</div>
     <div class="panel span-5"><h3>What the agent learned</h3><p class="sub">Reply rate per lead source. After 3 pitches a source moves the intent score of its next leads (up to ±10).</p>
       ${s.learning.length ? hbars(s.learning.map((l) => ({ label: l.source, value: l.reply_rate, l })),
           (r) => `${r.label}: ${r.l.replied} of ${r.l.pitched} replied, ${r.l.won} won · score ${r.l.adjust > 0 ? "+" : ""}${r.l.adjust}`,

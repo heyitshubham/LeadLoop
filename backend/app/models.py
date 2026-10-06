@@ -13,7 +13,7 @@ class Stage(StrEnum):
     PITCHED = "pitched"  # sent, waiting for the lead
     NEGOTIATING = "negotiating"  # lead replied; our answer is drafted
     WON = "won"
-    DELIVERED = "delivered"  # full dataset sent after the win
+    DELIVERED = "delivered"  # full research sent after the win
     LOST = "lost"
     REJECTED = "rejected"
 
@@ -48,7 +48,7 @@ class Lead(BaseModel):
 
 
 class Assessment(BaseModel):
-    fit_score: int = Field(description="0-100: how likely this lead buys a custom dataset")
+    fit_score: int = Field(description="0-100: how likely this lead buys our research service")
     need_summary: str = Field(description="One sentence: what data they need and why")
     sample_category: str = Field(description="Business type to sample, e.g. 'real estate agencies'")
     sample_city: str = Field(description="City to sample, in the lead's own country, e.g. 'Pune' or 'Austin'")

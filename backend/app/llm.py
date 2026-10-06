@@ -27,11 +27,14 @@ _gemini = genai.Client(api_key=settings.gemini_key) if "gemini" in _providers el
 _claude = anthropic.Anthropic(api_key=settings.anthropic_key) if "claude" in _providers else None
 
 SYSTEM = (
-    "You are the sales brain of a small data desk serving India and the US. Ground every claim in the evidence "
-    "you are given; never invent facts about the lead.\n"
-    "What we sell, exactly: lists of businesses built from public Google Maps and Google search "
-    "results, with name, type, address, phone, website, rating and review count where listed. "
-    "Data is pulled fresh on order and de-duplicated. Delivery is a CSV within 48 hours of payment.\n"
+    "You are the sales brain of a small market-research desk serving India and the US. Ground every claim in "
+    "the evidence you are given; never invent facts about the lead.\n"
+    "What we offer, exactly: a research service on local businesses. For the client's target market we find "
+    "businesses in public Google Maps and Google search results, remove duplicates, score each one for "
+    "completeness, and for the best ones summarise what customers mention in reviews and whether they are "
+    "hiring. The client gets the research as a CSV with name, type, address, phone, website, rating and review "
+    "count where listed. The fee pays for this research work and is priced per business researched; the first "
+    "10-business sample is free. Delivery within 48 hours of payment.\n"
     "Never claim anything beyond that: no manual or hand verification, no email addresses, no "
     "owner names, no accuracy guarantees, no prices other than the ones you are given.\n"
     "Write for busy founders and managers: short, specific, polite, in short paragraphs."
@@ -345,9 +348,9 @@ DEFAULT_CITY = {"INR": "Bengaluru", "USD": "New York"}
 
 def assess(lead: Lead, research: list[str] | None = None) -> Assessment:
     prompt = (
-        f"{_evidence(lead, research)}\n\nAssess this lead for a custom-dataset offer. Pick the single "
-        "business category and a city in the lead's own country whose data would most help them, "
-        "so we can build them a free 10-row sample before pitching."
+        f"{_evidence(lead, research)}\n\nAssess this lead for our research service. Pick the single "
+        "business category and a city in the lead's own country whose research would most help them, "
+        "so we can do a free 10-business sample for them before pitching."
     )
     return _parse(prompt, Assessment) or _demo_assess(lead)
 
@@ -358,7 +361,7 @@ def _demo_assess(lead: Lead) -> Assessment:
     city = next((c for c in CITIES if c.lower() in text), DEFAULT_CITY.get(lead.currency, "New York"))
     return Assessment(
         fit_score=lead.intent_score,
-        need_summary=f"{lead.name} is actively looking for data on {category} in {city}.",
+        need_summary=f"{lead.name} is actively looking for research on {category} in {city}.",
         sample_category=category,
         sample_city=city,
         angle=lead.signals[0].title,
@@ -372,10 +375,10 @@ def write_pitch(lead: Lead, a: Assessment, sample: list[dict], research: list[st
     preview = "\n".join(f"- {r['name']} | {r.get('rating')}★ ({r.get('reviews')} reviews)" for r in sample[:3])
     prompt = (
         f"{_evidence(lead, research)}\n\nOur read: {a.need_summary}\nAngle: {a.angle}\n"
-        f"We already built them a free {len(sample)}-row sample of {a.sample_category} in "
-        f"{a.sample_city} (attached as CSV). First rows:\n{preview}\n\n"
-        "Write a cold email under 120 words: reference their exact need, mention the attached "
-        "sample, offer the full dataset, end with one low-friction question. No hype, no emojis. "
+        f"We already researched a free sample of {len(sample)} {a.sample_category} in "
+        f"{a.sample_city} for them (attached as CSV). First rows:\n{preview}\n\n"
+        "Write a cold email under 120 words: reference their exact need, mention the attached free "
+        "sample, offer to research their whole market, end with one low-friction question. No hype, no emojis. "
         "Separate paragraphs with blank lines."
     )
     return _parse(prompt, Pitch) or _demo_pitch(lead, a, sample, preview)
@@ -387,11 +390,11 @@ def _demo_pitch(lead: Lead, a: Assessment, sample: list[dict], preview: str) -> 
         subject=f"{len(sample)} {a.sample_category} in {a.sample_city} — free sample for {lead.name}",
         body=(
             f"Hi {lead.name} team,\n\n"
-            f"Saw your post about \"{first}\". We build business lists from live search "
-            f"data, so I put together a free sample of {len(sample)} {a.sample_category} in "
-            f"{a.sample_city} (CSV attached):\n\n{preview}\n\n"
-            "The full list can include every area you care about, with phone, website, rating "
-            "and review counts, refreshed on demand.\n\n"
+            f"Saw your post about \"{first}\". We research local markets from live search "
+            f"results, so I did a free sample of {len(sample)} {a.sample_category} in "
+            f"{a.sample_city} for you (CSV attached):\n\n{preview}\n\n"
+            "The full research can cover every area you care about, with phone, website, rating "
+            "and review counts, plus what customers mention in reviews for the top businesses.\n\n"
             "Would a city-wide version be useful for your team this month?\n\n"
             f"— {settings.signature}"
         ),
@@ -442,7 +445,7 @@ def write_reply(lead: Lead, thread: list[dict], read: ReplyRead, quote: dict | N
         else "Do not mention any price."
     )
     goals = {
-        "interested": "Give the quote, say what each row contains, ask if they want to go ahead.",
+        "interested": "Give the quote, say what we research for each business, ask if they want to go ahead.",
         "question": "Answer their question from what we offer, include the quote, ask one question back.",
         "price_objection": "Acknowledge the budget concern, present the revised quote as our best, "
         "explain the value briefly, ask if it works.",
@@ -464,18 +467,19 @@ def _demo_reply(lead: Lead, read: ReplyRead, quote: dict | None) -> EmailDraft:
     q = quote or {}
     cur = q.get("currency", lead.currency)
     price_line = (
-        f"For {q.get('rows', 0):,} rows (name, phone, website, address, rating, reviews) "
-        f"the price is {money(q.get('price', 0), cur)}"
+        f"For researching {q.get('rows', 0):,} businesses (name, phone, website, address, rating, reviews) "
+        f"the fee is {money(q.get('price', 0), cur)}"
         + (f" — {q['discount_pct']}% off our list price of {money(q['list_price'], cur)}" if q.get("discount_pct") else "")
         + "."
     )
     bodies = {
         "interested": f"Thanks for getting back to us!\n\n{price_line}\n\nShall we go ahead?",
-        "question": f"Happy to help. {price_line}\n\nWhich areas should the full list cover?",
+        "question": f"Happy to help. {price_line}\n\nWhich areas should the research cover?",
         "price_objection": f"Understood — budgets matter. {q.get('note', '').capitalize()}: {price_line}\n\n"
         "That's the best we can do on this scope. Does that work for you?",
-        "accept": f"Great, thank you! Confirming {q.get('rows', 0):,} rows for {money(q.get('price', 0), cur)}. "
-        "We'll send the invoice shortly, and the full dataset follows within 48 hours of payment.",
+        "accept": f"Great, thank you! Confirming research on {q.get('rows', 0):,} businesses for "
+        f"{money(q.get('price', 0), cur)}. We'll send the invoice shortly, and the research follows within "
+        "48 hours of payment.",
         "not_now": "No problem at all, thanks for letting us know. Mind if we check back next quarter?",
     }
     body = bodies.get(read.intent, bodies["question"])
@@ -609,15 +613,15 @@ def vet_companies(candidates: list[dict]) -> list[tuple[str, str]]:
 def _vet_prompt(batch: list[dict]) -> str:
     listing = "\n".join(f"{i}. {c['name']} — {c['evidence']}" for i, c in enumerate(batch))
     return (
-        "We sell custom lists of local businesses (shops, agencies, clinics, competitors' listings) "
-        "built from search data, priced ₹1,500–₹10,000 in India or $49–$500 in the US. For each "
+        "We sell a research service on local businesses (shops, agencies, clinics, competitors) "
+        "built on public search results, priced ₹1,500–₹10,000 in India or $49–$500 in the US. For each "
         "company below, classify it. Judge the company itself, not the job it is hiring for:\n"
         "- job_board: recruitment, staffing, HR services or job sites, even when the posting is a sales role "
         "(they hire on behalf of other companies)\n"
         "- data_vendor: the company itself sells market research, data, analytics or lead generation\n"
         "- enterprise: well-known multinationals, listed companies, banks, universities, government bodies "
-        "and investors/VC firms; they don't buy ₹1,500 lists\n"
-        "- buyer: a small or mid-sized business or startup whose own sales or growth would use our lists\n"
+        "and investors/VC firms; they don't buy ₹1,500 research jobs\n"
+        "- buyer: a small or mid-sized business or startup whose own sales or growth would use our research\n"
         "- unclear: you can't tell from the name and evidence\n"
         f"Answer every one of the {len(batch)} companies, using its number as the index.\n\n" + listing
     )

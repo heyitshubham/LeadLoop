@@ -130,8 +130,8 @@ def load_settings() -> Settings:
         imap_password=os.getenv("IMAP_PASSWORD") or os.getenv("SMTP_PASSWORD") or None,
         # New domains get flagged as spam if they send in bulk; ramp this up slowly.
         daily_send_cap=int(os.getenv("LEADLOOP_DAILY_SEND_CAP", "25")),
-        sender=os.getenv("LEADLOOP_SENDER", "LeadLoop Data Desk <desk@leadloop.local>"),
-        signature=os.getenv("LEADLOOP_SIGNATURE", "LeadLoop Data Desk"),
+        sender=os.getenv("LEADLOOP_SENDER", "LeadLoop Research Desk <desk@leadloop.local>"),
+        signature=os.getenv("LEADLOOP_SIGNATURE", "LeadLoop Research Desk"),
         markets=_markets(os.getenv("LEADLOOP_MARKETS", "India,United States")),
         default_currency=os.getenv("DEFAULT_CURRENCY", "USD"),
         # Pricing rules. Code computes every quote; the LLM only words it.

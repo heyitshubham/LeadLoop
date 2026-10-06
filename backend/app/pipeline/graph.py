@@ -259,7 +259,7 @@ def fulfil(state: DealState) -> DealState:
         if report["delivered"] < report["ordered"] else ""
     )
     body = (
-        f"Hi {lead['name']} team,\n\nThanks for the order. Your dataset is attached: {report['delivered']} "
+        f"Hi {lead['name']} team,\n\nThanks for the order. Your research is attached: {report['delivered']} "
         f"{a.sample_category} across {', '.join(report['cities'])}, best rows first.\n\n"
         f"Each row has name, address, phone, website, rating, review count, opening status and map "
         f"coordinates, plus a quality score. The top {report['enriched']} rows also show what customers "
@@ -271,7 +271,7 @@ def fulfil(state: DealState) -> DealState:
     return {
         "order": report,
         "order_preview": rows[:10],
-        "delivery_email": {"subject": f"Your {a.sample_category} dataset ({report['delivered']} rows)", "body": body},
+        "delivery_email": {"subject": f"Your {a.sample_category} research ({report['delivered']} businesses)", "body": body},
         "send_error": None,
         "audit": _log(
             "agent",
