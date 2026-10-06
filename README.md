@@ -25,6 +25,10 @@ SerpApi India Hackathon 2026 — track: AI Agents.
 - **You stay in control.** LangGraph `interrupt()` pauses before every outgoing email, and every
   agent and human action is in the deal's audit trail.
 
+## How it works
+
+![How LeadLoop works: discover, research, qualify, free sample, pitch, negotiate, research and deliver, learn](docs/how-it-works.png)
+
 ## Pipeline
 
 ```

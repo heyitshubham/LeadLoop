@@ -1,0 +1,154 @@
+<!doctype html>
+<!-- Source of docs/how-it-works.png: screenshot a 1610x1040 viewport with deviceScaleFactor 2. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>How LeadLoop works</title>
+<style>
+  :root {
+    --ink: #0f172a; --muted: #475569; --line: #e2e8f0; --bg: #f8fafc; --card: #ffffff;
+    --blue: #2457f5; --blue-soft: #e8eeff; --blue-ink: #1e40af;
+    --violet: #7c3aed; --violet-soft: #f1eafe; --violet-ink: #5b21b6;
+    --amber: #b45309; --amber-soft: #fff4e0; --green: #15803d; --green-soft: #e7f6ec;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { background: #f8fafc; }
+  body { width: 1610px; height: 1040px; background: var(--bg); color: var(--ink); position: relative; overflow: hidden;
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif; }
+  .head { position: absolute; left: 60px; top: 44px; right: 60px; }
+  .head h1 { font-size: 40px; letter-spacing: -0.02em; }
+  .head h1 span { color: var(--blue); }
+  .head p { margin-top: 10px; font-size: 19px; color: var(--muted); max-width: 1000px; line-height: 1.45; }
+  .stats { position: absolute; right: 60px; top: 50px; display: flex; gap: 10px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 16px; text-align: center; }
+  .stat b { display: block; font-size: 24px; color: var(--blue); }
+  .stat small { font-size: 12px; color: var(--muted); }
+  .rowlabel { position: absolute; font-size: 13px; font-weight: 700; letter-spacing: 0.12em; color: var(--muted); }
+  .card { position: absolute; width: 320px; height: 250px; background: var(--card); border: 1px solid var(--line);
+          border-radius: 16px; padding: 18px 20px; box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 6px 18px rgba(15,23,42,.05);
+          display: flex; flex-direction: column; }
+  .card.win { border-color: #b7e4c7; }
+  .top { display: flex; align-items: center; gap: 12px; }
+  .num { width: 32px; height: 32px; border-radius: 50%; background: var(--blue); color: #fff; font-weight: 700;
+         display: grid; place-items: center; font-size: 16px; flex: none; }
+  .card.win .num { background: var(--green); }
+  .card h3 { font-size: 21px; letter-spacing: -0.01em; }
+  .card p { margin-top: 10px; font-size: 14.5px; line-height: 1.45; color: var(--muted); }
+  .card p b { color: var(--ink); font-weight: 600; }
+  .chips { margin-top: auto; padding-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 4px 8px; border-radius: 6px; }
+  .serp { background: var(--blue-soft); color: var(--blue-ink); }
+  .llm { background: var(--violet-soft); color: var(--violet-ink); font-family: inherit; }
+  .gate { margin: 12px -20px -18px; padding: 9px 20px; background: var(--amber-soft); color: var(--amber);
+          font-size: 13px; font-weight: 700; border-top: 1px solid #fde3b5; border-radius: 0 0 16px 16px; }
+  .gate + .chips, .chips + .gate { }
+  svg.arrows { position: absolute; inset: 0; pointer-events: none; }
+  .looplabel { position: absolute; font-size: 13.5px; font-weight: 600; color: var(--green); line-height: 1.35; }
+  .handoff { position: absolute; font-size: 13.5px; font-weight: 600; color: var(--muted); line-height: 1.35; text-align: right; }
+  .foot { position: absolute; left: 60px; right: 60px; top: 884px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .tech { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  .tech h4 { font-size: 15px; margin-bottom: 6px; }
+  .tech p { font-size: 13.5px; color: var(--muted); line-height: 1.45; }
+  .legend { position: absolute; left: 60px; top: 848px; display: flex; gap: 22px; font-size: 13px; color: var(--muted); align-items: center; }
+  .legend i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 6px; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>How <span>LeadLoop</span> works</h1>
+    <p>An AI agent that runs a small market-research desk end to end. It finds people who need research on local
+      businesses, wins them with a free sample, then does the paid research. SerpApi powers every search; you approve every email.</p>
+  </div>
+  <div class="stats">
+    <div class="stat"><b>5</b><small>SerpApi engines</small></div>
+    <div class="stat"><b>3</b><small>human gates</small></div>
+    <div class="stat"><b>1</b><small>learning loop</small></div>
+  </div>
+
+  <div class="rowlabel" style="left:60px; top:182px">FIND AND WIN THE LEAD →</div>
+  <div class="rowlabel" style="left:450px; top:548px">← DO THE RESEARCH, DELIVER, LEARN</div>
+
+  <!-- row 1: left to right -->
+  <div class="card" style="left:60px; top:210px">
+    <div class="top"><div class="num">1</div><h3>Discover</h3></div>
+    <p>Finds <b>people who need research</b>: companies hiring for lead-gen work, Reddit posts asking for lists,
+      newly funded startups. Skips anyone already in a deal.</p>
+    <div class="chips"><span class="chip serp">google_jobs</span><span class="chip serp">google</span><span class="chip serp">google_news</span></div>
+  </div>
+  <div class="card" style="left:450px; top:210px">
+    <div class="top"><div class="num">2</div><h3>Research</h3></div>
+    <p>The LLM <b>decides what to look up</b> about the company and runs up to 3 web, news and Maps searches itself
+      with <b style="white-space:nowrap">serpapi-search-tools</b>.</p>
+    <div class="chips"><span class="chip serp">web_search</span><span class="chip serp">news_search</span><span class="chip serp">maps_search</span><span class="chip llm">LLM</span></div>
+  </div>
+  <div class="card" style="left:840px; top:210px">
+    <div class="top"><div class="num">3</div><h3>Qualify</h3></div>
+    <p>Scores buying intent with <b>a reason for every point</b>, drops job boards and competitors, and picks the
+      one category and city to research for them.</p>
+    <div class="chips"><span class="chip llm">LLM</span><span class="chip llm">rules</span></div>
+  </div>
+  <div class="card" style="left:1230px; top:210px">
+    <div class="top"><div class="num">4</div><h3>Free sample</h3></div>
+    <p>Researches <b>10 real businesses</b> for the lead before any pitch: the lead magnet that
+      shows the work up front.</p>
+    <div class="chips"><span class="chip serp">google_maps</span></div>
+  </div>
+
+  <!-- row 2: right to left -->
+  <div class="card" style="left:1230px; top:576px">
+    <div class="top"><div class="num">5</div><h3>Pitch</h3></div>
+    <p>A short email that cites <b>their exact need</b> and attaches the sample as CSV.</p>
+    <div class="chips"><span class="chip llm">LLM</span></div>
+    <div class="gate">✋ Pauses for your approval</div>
+  </div>
+  <div class="card" style="left:840px; top:576px">
+    <div class="top"><div class="num">6</div><h3>Negotiate</h3></div>
+    <p>The LLM reads each reply. <b>Code sets every price</b> from your rules; discounts stop at your floor.
+      Follows up on silence.</p>
+    <div class="chips"><span class="chip llm">LLM</span><span class="chip llm">pricing rules</span></div>
+    <div class="gate">✋ Pauses for your approval</div>
+  </div>
+  <div class="card win" style="left:450px; top:576px">
+    <div class="top"><div class="num">7</div><h3>Research &amp; deliver</h3></div>
+    <p>Covers every city, <b>dedupes, scores and enriches</b> with review topics and hiring. Costed per
+      order, with margin.</p>
+    <div class="chips"><span class="chip serp">google_maps</span><span class="chip serp">google_maps_reviews</span><span class="chip serp">google_jobs</span></div>
+    <div class="gate">✋ Pauses for your approval</div>
+  </div>
+  <div class="card win" style="left:60px; top:576px">
+    <div class="top"><div class="num">8</div><h3>Learn</h3></div>
+    <p>Reply and win rates per lead source <b>shift the next discovery's scores</b> by up to ±10, with the reason
+      written into each lead's evidence.</p>
+    <div class="chips"><span class="chip llm">feedback loop</span></div>
+  </div>
+
+  <svg class="arrows" width="1610" height="1040" viewBox="0 0 1610 1040">
+    <defs>
+      <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/></marker>
+      <marker id="g" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/></marker>
+    </defs>
+    <g stroke="#94a3b8" stroke-width="2.5" fill="none" marker-end="url(#a)">
+      <path d="M388 335 H442"/><path d="M778 335 H832"/><path d="M1168 335 H1222"/>
+      <path d="M1390 468 V568"/>
+      <path d="M1222 701 H1168"/><path d="M832 701 H778"/><path d="M442 701 H388"/>
+    </g>
+    <path d="M220 568 V468" stroke="#15803d" stroke-width="2.5" stroke-dasharray="7 6" fill="none" marker-end="url(#g)"/>
+  </svg>
+  <div class="looplabel" style="left:236px; top:494px">next discovery<br>scores better</div>
+  <div class="handoff" style="left:1214px; top:494px; width:160px">lead gets the pitch<br>and replies</div>
+
+  <div class="legend">
+    <span><i style="background:var(--blue-soft); border:1px solid #c7d4fe"></i>SerpApi search</span>
+    <span><i style="background:var(--violet-soft); border:1px solid #dccbfb"></i>LLM or rules</span>
+    <span><i style="background:var(--amber-soft); border:1px solid #fde3b5"></i>LangGraph interrupt(): you approve, edit or discard</span>
+  </div>
+  <div class="foot">
+    <div class="tech"><h4>LangGraph</h4><p>One checkpointed thread per deal. Every outgoing email pauses at an interrupt(); autopilot is opt-in per gate.</p></div>
+    <div class="tech"><h4>LLMs with a safety net</h4><p>Groq, then Gemini, then Claude, with structured output. If all fail, rules take over and the board says so.</p></div>
+    <div class="tech"><h4>SerpApi client</h4><p>Every search is cached, counted against a credit budget and replayable offline in demo mode.</p></div>
+    <div class="tech"><h4>Board and audit trail</h4><p>A live panel shows each search as it runs. Every agent and human action is logged on the deal.</p></div>
+  </div>
+</body>
+</html>
