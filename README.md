@@ -94,13 +94,21 @@ state keeps only a 10-row preview and the report.
   `GET /api/discover/stream`): the search plan, each SerpApi search with its engine, query, result
   count, timing and whether it was live (1 credit) or cached (free), how signals were merged, and
   every lead kept or dropped with the reason.
+
+  ![The live discovery panel: each SerpApi search, signals merged, leads skipped, and every lead kept or dropped with its score](docs/discover.png)
+
 - **Board**: deals as cards in five columns (Discovered, Needs your approval, Waiting on lead,
   Won, Closed out). Click a card for the evidence, sample, conversation, quote and audit trail.
+
+  ![A deal waiting at the reply gate: the lead's price objection, the quote set by the pricing rules, and the drafted answer to approve, edit or discard](docs/approval.png)
+
 - **Insights**: KPI tiles (including SerpApi cost and margin), unit economics per order, what the
   agent learned per lead source, a live agent-flow diagram (where every deal is, which steps need you),
   sales funnel, lead sources, negotiation chart (quoted price per round), intent-score
   histogram, who did the work (agent / you / leads), and recent activity. All numbers come from
   `GET /api/stats`; every chart has hover details and a table view.
+
+  ![Insights: KPI tiles, the live agent flow, the sales funnel and lead sources](docs/insights.png)
 
 ## Run
 
